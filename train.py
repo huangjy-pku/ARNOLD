@@ -14,10 +14,12 @@ import torch.backends.cudnn as cudnn
 import argparse
 import warnings
 from math import ceil
+from torch.utils.data import DataLoader
 from scipy.spatial.transform import Rotation as R
 from torch.utils.tensorboard import SummaryWriter
 
 from dataset import ArnoldDataset
+from custom_utils.misc import collate_fn
 from cliport6d.agent import TwoStreamClipLingUNetLatTransporterAgent
 warnings.filterwarnings('ignore')
 
@@ -46,10 +48,6 @@ class AverageMeter(object):
         return fmtstr.format(**self.__dict__)
 
 
-def collate_fn(batch):
-    return batch
-
-
 def save_checkpoint(state, is_best, filename='checkpoint.pth'):
     torch.save(state, filename+'.pth')
     if is_best:
@@ -65,7 +63,7 @@ def sec_to_str(delta):
 def main(args):
     if not os.path.exists(args.checkpoint_path):
         os.mkdir(args.checkpoint_path)
-    loss_func = None
+
     cfg = {
         'train': {
             'attn_stream_fusion_type': 'add',
@@ -75,7 +73,7 @@ def main(args):
             'batchnorm': False
         }
     }
-    device = torch.device(0)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     model = TwoStreamClipLingUNetLatTransporterAgent(name='cliport_6dof', device=device, cfg=cfg, z_roll_pitch=True)
     model.to(device)
@@ -101,13 +99,15 @@ def main(args):
     train_dataset = ArnoldDataset(data_path=os.path.join(args.data_dir, 'train'), task=args.task, obs_type=args.obs_type)
     val_dataset = ArnoldDataset(data_path=os.path.join(args.data_dir, 'val'), task=args.task, obs_type=args.obs_type)
 
-    train_loader = torch.utils.data.DataLoader(
+    train_loader = DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.batch_size//4,
-        pin_memory=True, drop_last=False, collate_fn=collate_fn, persistent_workers=True)
+        pin_memory=True, drop_last=False, collate_fn=collate_fn, persistent_workers=True
+    )
 
-    val_loader = torch.utils.data.DataLoader(
+    val_loader = DataLoader(
         val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.batch_size//4,
-        pin_memory=True, drop_last=False, collate_fn=collate_fn, persistent_workers=True)
+        pin_memory=True, drop_last=False, collate_fn=collate_fn, persistent_workers=True
+    )
     
     writer = SummaryWriter(log_dir=args.checkpoint_path)
 
@@ -123,7 +123,7 @@ def main(args):
     print(f'Training epochs: {args.steps} steps / ({len(train_dataset)} demos / {args.batch_size} batch_size) = {args.epochs}')
     for epoch in range(start_epoch, args.epochs):
         # train for one epoch
-        train(train_loader, model, optimizer, scheduler, epoch, losses, args, timer, loss_func)
+        train(train_loader, model, optimizer, scheduler, epoch, losses, args, timer)
 
         for k, v in losses.items():
             writer.add_scalar(k, v.avg, epoch)
@@ -148,9 +148,7 @@ def main(args):
     writer.close()
 
 
-def train(data_loader, model, optimizer, scheduler, epoch, losses, args, timer, loss_func):
-    if loss_func == None:
-        loss_func = torch.nn.BCELoss(reduction='mean')
+def train(data_loader, model, optimizer, scheduler, epoch, losses, args, timer):
     batch_time = timer["batch_time"]
     data_time = timer["data_time"]
     model.train()
@@ -188,7 +186,7 @@ def train(data_loader, model, optimizer, scheduler, epoch, losses, args, timer, 
 
         p1_rotation = target_points[:, 3:]
         # [yaw, pitch, roll] (zyx) in z-up to [yaw, pitch, roll] in y-up
-        p1_rotation = R.from_euler('zyx', p1_rotation, degrees=True).as_matrix()
+        p1_rotation = R.from_quat(p1_rotation).as_matrix()
         rot_transition = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]]).astype(float)
         p1_rotation = R.from_matrix(rot_transition @ p1_rotation).as_euler('zyx', degrees=True)
 
@@ -267,9 +265,10 @@ def val(data_loader, model, args, epoch):
 
         p1_rotation = target_points[:, 3:]
         # [yaw, pitch, roll] (zyx) in z-up to [yaw, pitch, roll] in y-up
-        p1_rotation = R.from_euler('zyx', p1_rotation, degrees=True).as_matrix()
+        p1_rotation = R.from_quat(p1_rotation).as_matrix()
         rot_transition = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]]).astype(float)
         p1_rotation = R.from_matrix(rot_transition @ p1_rotation).as_euler('zyx', degrees=True)
+
         inp = {'img':img, 'lang_goal': language_instructions,
             'p0':p0, 'p0_z':p0_z, 'p1':p1, 'p1_z':p1_z, 'p1_rotation':p1_rotation}
         with torch.no_grad():

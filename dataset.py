@@ -5,6 +5,7 @@ import numpy as np
 from torch.utils.data import Dataset
 from scipy.spatial.transform import Rotation as R
 from cliport6d.utils.utils import get_fused_heightmap
+from peract.utils import CAMERAS
 from custom_utils.misc import get_pose_world, create_pcd_hardcode, get_bounds, TASK_OFFSETS
 
 pickle.DEFAULT_PROTOCOL=pickle.HIGHEST_PROTOCOL
@@ -28,6 +29,7 @@ class ArnoldDataset(Dataset):
         self.task_offset = TASK_OFFSETS[task]
         self.sample_weights = [0.2, 0.8]
         self.episode_dict = {}
+        self.lang_embed_cache = {}
         self._load_keyframes()
     
     def _load_keyframes(self):
@@ -65,7 +67,7 @@ class ArnoldDataset(Dataset):
                 step = gt_frames[0]
                 bounds = get_bounds(step['robot_base'][0], offset=self.task_offset)
 
-                cmap, hmap = self.get_step_obs(step, bounds, self.pixel_size, type=self.obs_type)
+                cmap, hmap, obs_dict = self.get_step_obs(step, bounds, self.pixel_size, type=self.obs_type)
                 hmap = np.tile(hmap[..., None], (1,1,3))
                 img = np.concatenate([cmap, hmap], axis=-1)
 
@@ -75,11 +77,18 @@ class ArnoldDataset(Dataset):
                 act_pos /= 100
                 act_rot = act_rot[[1,2,3,0]]   # wxyz to xyzw
                 target_points = self.get_act_label_from_abs(pos_abs=act_pos, rot_abs=act_rot)
+
+                gripper_joint_positions = gt_frames[2]['gripper_joint_positions'] / 100
+                gripper_joint_positions = np.clip(gripper_joint_positions, 0, 0.04)
+                low_dim_state = np.array([0, *gripper_joint_positions, 0])
                 
                 episode_dict1 = {
-                    'img': img,   # [H, W, 6]
+                    "img": img,   # [H, W, 6]
+                    "obs_dict": obs_dict,   # { {camera_name}_{rgb/point_cloud}: [H, W, 3] }
                     "attention_points": obj_pos,   # [3,]
                     "target_points": target_points,   # [6,]
+                    "target_gripper": 0,   # binary
+                    "low_dim_state": low_dim_state,   # [grip_open, left_finger, right_finger, timestep]
                     "language": language_instructions,   # str
                     "bounds": bounds,   # [3, 2]
                     "pixel_size": self.pixel_size,   # scalar
@@ -91,7 +100,7 @@ class ArnoldDataset(Dataset):
                 step = gt_frames[2]
                 bounds = get_bounds(step['robot_base'][0], offset=self.task_offset)
 
-                cmap, hmap = self.get_step_obs(step, bounds, self.pixel_size, type=self.obs_type)
+                cmap, hmap, obs_dict = self.get_step_obs(step, bounds, self.pixel_size, type=self.obs_type)
                 hmap = np.tile(hmap[..., None], (1,1,3))
                 img = np.concatenate([cmap, hmap], axis=-1)
                 
@@ -107,10 +116,17 @@ class ArnoldDataset(Dataset):
                 act_rot = act_rot[[1,2,3,0]]   # wxyz to xyzw
                 target_points = self.get_act_label_from_abs(pos_abs=act_pos, rot_abs=act_rot)
 
+                gripper_joint_positions = gt_frames[3]['gripper_joint_positions'] / 100
+                gripper_joint_positions = np.clip(gripper_joint_positions, 0, 0.04)
+                low_dim_state = np.array([0, *gripper_joint_positions, 0])
+
                 episode_dict2 = {
-                    'img': img,   # [H, W, 6]
+                    "img": img,   # [H, W, 6]
+                    "obs_dict": obs_dict,   # { {camera_name}_{rgb/point_cloud}: [H, W, 3] }
                     "attention_points": obj_pos,   # [3,]
                     "target_points": target_points,   # [6,]
+                    "target_gripper": 0,   # binary
+                    "low_dim_state": low_dim_state,   # [grip_open, left_finger, right_finger, timestep]
                     "language": language_instructions,   # str
                     "bounds": bounds,   # [3, 2]
                     "pixel_size": self.pixel_size,   # scalar
@@ -118,11 +134,11 @@ class ArnoldDataset(Dataset):
 
                 self.episode_dict[obj_id]['act2'].append(episode_dict2)
         
-        print(f'Loaded {[len(v["act1"]) for k,v in self.episode_dict]} demos')
+        print(f'Loaded {[len(v["act1"]) for k, v in self.episode_dict.items()]} demos')
 
     def __len__(self):
         num_demos = 0
-        for k, v in self.episode_dict:
+        for k, v in self.episode_dict.items():
             num_demos += len(v['act'])
         return num_demos
     
@@ -135,7 +151,8 @@ class ArnoldDataset(Dataset):
         imgs = step['images']
         colors = []
         pcds = []
-        for camera_obs in imgs:
+        obs_dict = {}
+        for camera_name, camera_obs in zip(CAMERAS, imgs):
             camera = camera_obs['camera']
 
             if type == 'rgb':
@@ -150,9 +167,14 @@ class ArnoldDataset(Dataset):
 
             point_cloud = create_pcd_hardcode(camera, depth, cm_to_m=True)
             pcds.append(point_cloud)
+
+            obs_dict.update({
+                f'{camera_name}_rgb': color,
+                f'{camera_name}_point_cloud': point_cloud
+            })
         
         cmap, hmap = get_fused_heightmap(colors, pcds, bounds, pixel_size)
-        return cmap, hmap
+        return cmap, hmap, obs_dict
     
     def get_act_label_from_rel(self, pos_rel, rot_rel, robot_base):
         robot_pos, robot_rot = robot_base
@@ -161,12 +183,28 @@ class ArnoldDataset(Dataset):
         if rot_world is None:
             return pos_world
         else:
-            rot_world = R.from_matrix(rot_world).as_euler('zyx', degrees=True)
+            rot_world = R.from_matrix(rot_world).as_quat()
             return np.concatenate([pos_world, rot_world])
     
     def get_act_label_from_abs(self, pos_abs, rot_abs):
         if rot_abs is None:
             return pos_abs
         else:
-            rot_abs = R.from_quat(rot_abs).as_euler('zyx', degrees=True)
             return np.concatenate([pos_abs, rot_abs])
+    
+    def get_lang_embed(self, lang_encoder, instructions):
+        if isinstance(instructions, str):
+            # a single sentence
+            instructions = [instructions]
+        
+        lang_embeds = []
+        for sen in instructions:
+            if sen not in self.lang_embed_cache:
+                # TODO: check encoding method and padding necessity
+                sen_embed = lang_encoder.encode_text(sen)
+                self.lang_embed_cache.update({sen: sen_embed})
+            
+            lang_embeds.append(self.lang_embed_cache[sen])
+        
+        lang_embeds = torch.cat(lang_embeds, dim=0)
+        return lang_embeds

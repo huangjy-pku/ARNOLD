@@ -18,6 +18,10 @@ TASK_RESOLUTIONS = {
 }
 
 
+def collate_fn(batch):
+    return batch
+
+
 def action_diff(curr_act, prev_act):
     curr1, curr2 = curr_act
     prev1, prev2 = prev_act
