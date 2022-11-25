@@ -1,8 +1,7 @@
 """
 For example, run:
-    python train.py --data_dir /mnt/huangjiangyong/VRKitchen/pickup_object --task pickup_object --obs_type rgb \
-                    --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt \
-                    --batch_size 4 --steps 20000 > train.log
+    python train_cliport6d.py --data_dir /mnt/huangjiangyong/VRKitchen/pickup_object --task pickup_object --obs_type rgb \
+                              --batch_size 4 --steps 20000 --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt_cliport6d > train.log
 """
 
 import datetime
@@ -48,12 +47,6 @@ class AverageMeter(object):
         return fmtstr.format(**self.__dict__)
 
 
-def save_checkpoint(state, is_best, filename='checkpoint.pth'):
-    torch.save(state, filename+'.pth')
-    if is_best:
-        torch.save(state, 'model_best.pth')
-
-
 def sec_to_str(delta):
     t = datetime.timedelta(seconds=delta)
     s = str(t)
@@ -88,8 +81,7 @@ def main(args):
             checkpoint = torch.load(args.resume)
             start_epoch = checkpoint['epoch']
             model.load_state_dict(checkpoint['state_dict'])
-            print("=> loaded checkpoint '{}' (epoch {})"
-                  .format(args.resume, checkpoint['epoch']))
+            print("=> loaded checkpoint '{}' (epoch {})".format(args.resume, checkpoint['epoch']))
             del checkpoint
             torch.cuda.empty_cache()
         else:
@@ -123,32 +115,29 @@ def main(args):
     print(f'Training epochs: {args.steps} steps / ({len(train_dataset)} demos / {args.batch_size} batch_size) = {args.epochs}')
     for epoch in range(start_epoch, args.epochs):
         # train for one epoch
-        train(train_loader, model, optimizer, scheduler, epoch, losses, args, timer)
-
-        for k, v in losses.items():
-            writer.add_scalar(k, v.avg, epoch)
+        train(train_loader, model, optimizer, scheduler, epoch, losses, args, timer, writer)
         
         val_loss = val(val_loader, model, args, epoch)
 
         writer.add_scalar('val_loss', val_loss, epoch)
 
-        save_name = args.checkpoint_path+'/conv_checkpoint_{}_{}'.format(args.baseline_mode, args.task)
+        save_name = args.checkpoint_path + '/conv_checkpoint_{}_{}'.format(args.baseline_mode, args.task)
 
         if val_loss <= best_val_loss:
             best_val_loss = val_loss
-            save_name_best = save_name + '_best'
-            save_checkpoint({
+            save_name_best = save_name + '_best.pth'
+            torch.save({
                 'epoch': epoch + 1,
                 'arch': args.baseline_mode,
                 'state_dict': model.state_dict(),
                 'optimizer' : optimizer.state_dict(),
                 'train_tasks': args.task
-            }, is_best=False, filename=save_name_best)
+            }, save_name_best)
     
     writer.close()
 
 
-def train(data_loader, model, optimizer, scheduler, epoch, losses, args, timer):
+def train(data_loader, model, optimizer, scheduler, epoch, losses, args, timer, writer):
     batch_time = timer["batch_time"]
     data_time = timer["data_time"]
     model.train()
@@ -217,16 +206,22 @@ def train(data_loader, model, optimizer, scheduler, epoch, losses, args, timer):
         time_elapsed = sec_to_str(batch_time.sum)
         time_estimate = sec_to_str(args.epochs * time_per_epoch)
 
-        if batch_step % 10 == 0:
+        if batch_step % args.log_freq == 0:
             tmp_str = 'Epoch: [{}/{}] Batch: [{}/{}]  ' \
                         'Time {batch_time.val:.3f} ({batch_time.avg:.3f})  ' \
                         'Elapsed: {}  ' \
                         'ETA: {} / {}  ' \
-                        'Data {data_time.val:.3f} ({data_time.avg:.3f})  '.format(
+                        'Data {data_time.val:.3f} ({data_time.avg:.3f})\n'.format(
                 epoch + 1, args.epochs, batch_step, len(data_loader), time_elapsed, time_left, time_estimate,
                 batch_time=batch_time, data_time=data_time)
+            
+            tmp_str += f'total_loss: {loss.item():.4f}'
+            writer.add_scalar('total_loss', loss.item(), batch_time.count)
+
             for loss_term in losses:
                 tmp_str += '{}: {loss.val:.4f} ({loss.avg:.4f})  '.format(loss_term, loss=losses[loss_term])
+                writer.add_scalar(loss_term, losses[loss_term].val, batch_time.count)
+            
             print(tmp_str)
 
 
@@ -290,26 +285,19 @@ def val(data_loader, model, args, epoch):
     return all_avg_loss
 
 
-if __name__=="__main__":
-    
+if __name__== '__main__':
     parser = argparse.ArgumentParser(description='')
     
     parser.add_argument('--data_dir', type=str)
     parser.add_argument('--task', type=str)
     parser.add_argument('--obs_type', type=str)
-    parser.add_argument('--batch_size', type=int, default=16, metavar='N',
-                        help='input batch size for training (default: 8)')
-    parser.add_argument('--epochs', default=15, type=int,
-                            help='Print log message at this many iterations (default: 10)')
+    parser.add_argument('--batch_size', type=int, default=16, metavar='N')
+    parser.add_argument('--epochs', type=int)
     parser.add_argument('--steps', type=int, help='Set optimization steps for training')
-    parser.add_argument('--log-freq', default=10, type=int,
-                            help='Print log message at this many iterations (default: 1)')
-    parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
-                        help='learning rate for Adam (default: 0.01)')
-    parser.add_argument('--checkpoint_path', default='../vlmbench/weights', type=str, metavar='PATH',
-                        help='path to latest checkpoint (default: none)')
-    parser.add_argument('--resume', default=None, type=str,
-                        help='resume training from checkpoint-path/model-best.pth')
+    parser.add_argument('--log-freq', default=50, type=int)
+    parser.add_argument('--lr', type=float, default=0.001, metavar='LR')
+    parser.add_argument('--checkpoint_path', type=str, metavar='PATH')
+    parser.add_argument('--resume', default=None, type=str, help='resume training from checkpoint file')
     parser.add_argument('--baseline_mode', type=str, default='cliport_6dof')
     args = parser.parse_args()
 

@@ -1,5 +1,4 @@
 from peract.arm.optim.lamb import Lamb
-from peract.arm.utils import stack_on_channel
 
 from torch import nn
 import copy
@@ -7,9 +6,20 @@ import torch
 from peract.voxel_grid import VoxelGrid
 import numpy as np
 import torch.nn.functional as F
-# TODO fix constants
 from peract.custom_utils import _preprocess_inputs,IMAGE_SIZE,CAMERAS
 from peract.arm.utils import visualise_voxel, discrete_euler_to_quaternion, get_gripper_render_pose
+from transformers import T5Tokenizer, T5EncoderModel
+
+
+class T5_encoder(nn.Module):
+    def __init__(self, cfg_path):
+        self.tokenizer = T5Tokenizer.from_pretrained(cfg_path)
+        self.encoder = T5EncoderModel.from_pretrained(cfg_path)
+    
+    def encode_text(self, text):
+        tokens = self.tokenizer(text, return_tensors='pt')
+        output = self.encoder(tokens.input_ids, attention_mask=tokens.attention_mask)
+        return output.last_hidden_state
 
 
 class PreNorm(nn.Module):
@@ -778,7 +788,7 @@ class PerceiverActorAgent():
         # print(replay_sample['low_dim_state'].shape)
         # exit()
         
-        proprio = stack_on_channel(replay_sample['low_dim_state'])
+        proprio = replay_sample['low_dim_state']
        
         obs, pcd = _preprocess_inputs(replay_sample)
 
@@ -824,21 +834,15 @@ class PerceiverActorAgent():
         }
 
     def update(self, step: int, replay_sample: dict, backprop: bool = True) -> dict:
-        # sample
-        action_trans = replay_sample['trans_action_indices'][:, -1, :3].int()
-        action_rot_grip = replay_sample['rot_grip_action_indices'][:, -1].int()
-        action_ignore_collisions = replay_sample['ignore_collisions'][:, -1].int()
-        lang_goal_embs = replay_sample['lang_goal_embs'][:, -1].float()
-        # check -1
+        action_trans = replay_sample['trans_action_indices'].int()
+        action_rot_grip = replay_sample['rot_grip_action_indices'].int()
+        action_ignore_collisions = replay_sample['ignore_collisions'].int()
+        lang_goal_embs = replay_sample['lang_goal_embs'].float()
+        proprio = replay_sample['low_dim_state'].float()
         
         # metric scene bounds
         bounds = bounds_tp1 = self._coordinate_bounds
-        
-        # inputs
-        # print(replay_sample['low_dim_state'])
-        # print(replay_sample['low_dim_state'].shape)
-        # exit()
-        proprio = stack_on_channel(replay_sample['low_dim_state'])
+
         obs, pcd = _preprocess_inputs(replay_sample)
 
         # TODO: data augmentation by applying SE(3) pertubations to obs and actions

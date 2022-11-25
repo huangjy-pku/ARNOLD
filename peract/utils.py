@@ -1,3 +1,5 @@
+import torch
+import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 CAMERAS = ['front', 'left', 'base', 'wrist', 'wrist_bottom']
@@ -19,11 +21,6 @@ NUM_TEST = 20 # episodes to evaluate on
 
 SCENE_BOUNDS = [-1, 0, -1, 1, 2, 1]
 SCENE_BOUNDS = [-0.6, 0, -0.6, 0.6, 1.2, 0.6]
-
-
-def stack_on_channel(x):
-    # expect (B, T, C, ...)
-    return torch.cat(torch.split(x, 1, dim=1), dim=2).squeeze(1)
 
 
 def point_to_voxel_index(points: np.ndarray, voxel_size: np.ndarray, coord_bounds: np.ndarray):
@@ -56,8 +53,8 @@ def quaternion_to_discrete_euler(quaternion, resolution):
 def _preprocess_inputs(replay_sample):
     obs, pcds = [], []
     for n in CAMERAS:
-        rgb = stack_on_channel(replay_sample['%s_rgb' % n])
-        pcd = stack_on_channel(replay_sample['%s_point_cloud' % n])
+        rgb = replay_sample[f'{n}_rgb']
+        pcd = replay_sample[f'{n}_point_cloud']
 
         rgb = (rgb.float() / 255.0) * 2.0 - 1.0
 
@@ -74,19 +71,19 @@ def _get_action(
         rotation_resolution: int,
         crop_augmentation: bool):
     # print("obs_tp1.gripper_pose[3:]: ", obs_tp1.gripper_pose[3:])
-    quat = utils.normalize_quaternion(obs_tp1.gripper_pose[3:])
+    quat = normalize_quaternion(obs_tp1.gripper_pose[3:])
     if quat[-1] < 0:
         quat = -quat
     # print("get action quat: ", quat)
     
-    disc_rot = utils.quaternion_to_discrete_euler(quat, rotation_resolution)
+    disc_rot = quaternion_to_discrete_euler(quat, rotation_resolution)
 
     attention_coordinate = obs_tp1.gripper_pose[:3]
     trans_indicies, attention_coordinates = [], []
     bounds = np.array(rlbench_scene_bounds)
     ignore_collisions = int(obs_tm1.ignore_collisions)
     for depth, vox_size in enumerate(voxel_sizes): # only single voxelization-level is used in PerAct
-        index = utils.point_to_voxel_index(
+        index = point_to_voxel_index(
             obs_tp1.gripper_pose[:3], vox_size, bounds)
         trans_indicies.extend(index.tolist())
         res = (bounds[3:] - bounds[:3]) / vox_size

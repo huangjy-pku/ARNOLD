@@ -9,6 +9,10 @@ from peract.utils import CAMERAS
 from custom_utils.misc import get_pose_world, create_pcd_hardcode, get_bounds, TASK_OFFSETS
 
 pickle.DEFAULT_PROTOCOL=pickle.HIGHEST_PROTOCOL
+RANDOM_SEED=1125
+random.seed(RANDOM_SEED)
+np.random.seed(RANDOM_SEED)
+torch.manual_seed(RANDOM_SEED)
 
 
 class ArnoldDataset(Dataset):
@@ -78,16 +82,18 @@ class ArnoldDataset(Dataset):
                 act_rot = act_rot[[1,2,3,0]]   # wxyz to xyzw
                 target_points = self.get_act_label_from_abs(pos_abs=act_pos, rot_abs=act_rot)
 
+                gripper_open = 0
                 gripper_joint_positions = gt_frames[2]['gripper_joint_positions'] / 100
                 gripper_joint_positions = np.clip(gripper_joint_positions, 0, 0.04)
-                low_dim_state = np.array([0, *gripper_joint_positions, 0])
+                timestep = 0
+                low_dim_state = np.array([gripper_open, *gripper_joint_positions, timestep])
                 
                 episode_dict1 = {
                     "img": img,   # [H, W, 6]
                     "obs_dict": obs_dict,   # { {camera_name}_{rgb/point_cloud}: [H, W, 3] }
                     "attention_points": obj_pos,   # [3,]
                     "target_points": target_points,   # [6,]
-                    "target_gripper": 0,   # binary
+                    "target_gripper": gripper_open,   # binary
                     "low_dim_state": low_dim_state,   # [grip_open, left_finger, right_finger, timestep]
                     "language": language_instructions,   # str
                     "bounds": bounds,   # [3, 2]
@@ -116,16 +122,18 @@ class ArnoldDataset(Dataset):
                 act_rot = act_rot[[1,2,3,0]]   # wxyz to xyzw
                 target_points = self.get_act_label_from_abs(pos_abs=act_pos, rot_abs=act_rot)
 
+                gripper_open = 0
                 gripper_joint_positions = gt_frames[3]['gripper_joint_positions'] / 100
                 gripper_joint_positions = np.clip(gripper_joint_positions, 0, 0.04)
-                low_dim_state = np.array([0, *gripper_joint_positions, 0])
+                timestep = 1
+                low_dim_state = np.array([gripper_open, *gripper_joint_positions, timestep])
 
                 episode_dict2 = {
                     "img": img,   # [H, W, 6]
                     "obs_dict": obs_dict,   # { {camera_name}_{rgb/point_cloud}: [H, W, 3] }
                     "attention_points": obj_pos,   # [3,]
                     "target_points": target_points,   # [6,]
-                    "target_gripper": 0,   # binary
+                    "target_gripper": gripper_open,   # binary
                     "low_dim_state": low_dim_state,   # [grip_open, left_finger, right_finger, timestep]
                     "language": language_instructions,   # str
                     "bounds": bounds,   # [3, 2]
@@ -146,6 +154,19 @@ class ArnoldDataset(Dataset):
         obj_idx = np.random.randint(len(self.episode_dict), size=1)
         act_idx = 1 + np.random.choice(2, size=1, p=self.sample_weights)
         return random.choice(self.episode_dict[obj_idx][f'act{act_idx}'])
+    
+    def sample(self, batch_size):
+        samples = []
+        sampled_idx = []
+        while len(samples) < batch_size:
+            obj_idx = np.random.randint(len(self.episode_dict), size=1)
+            act_idx = 1 + np.random.choice(2, size=1, p=self.sample_weights)
+            demo_idx = np.random.randint(len(self.episode_dict[obj_idx][f'act{act_idx}']), size=1)
+            obj_act_demo_tuple = (obj_idx, act_idx, demo_idx)
+            if obj_act_tuple not in sampled_idx:
+                samples.append(self.episode_dict[obj_idx][f'act{act_idx}'][demo_idx])
+        
+        return samples
 
     def get_step_obs(self, step, bounds, pixel_size, type='rgb'):
         imgs = step['images']
