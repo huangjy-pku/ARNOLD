@@ -1,5 +1,5 @@
-import cliport.models as models
-from cliport.models.streams.two_stream_transport_lang_fusion import TwoStreamTransportLangFusion
+import cliport6d.models as models
+from cliport6d.models.streams.two_stream_transport_lang_fusion import TwoStreamTransportLangFusion
 
 
 class OneStreamTransportLangFusion(TwoStreamTransportLangFusion):

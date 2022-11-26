@@ -21,7 +21,7 @@ from PIL import Image
 from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize
 from tqdm import tqdm
 
-from cliport.utils.simple_tokenizer import SimpleTokenizer as _Tokenizer
+from cliport6d.utils.simple_tokenizer import SimpleTokenizer as _Tokenizer
 # from clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
 
 

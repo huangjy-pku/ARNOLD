@@ -1,7 +1,7 @@
 """Attention module."""
 
-import cliport.models as models
-from cliport.models.streams.two_stream_attention_lang_fusion import TwoStreamAttentionLangFusion
+import cliport6d.models as models
+from cliport6d.models.streams.two_stream_attention_lang_fusion import TwoStreamAttentionLangFusion
 
 
 class OneStreamAttentionLangFusion(TwoStreamAttentionLangFusion):

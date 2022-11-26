@@ -1,4 +1,5 @@
 import os
+import torch
 import pickle
 import random
 import numpy as np
@@ -6,7 +7,7 @@ from torch.utils.data import Dataset
 from scipy.spatial.transform import Rotation as R
 from cliport6d.utils.utils import get_fused_heightmap
 from peract.utils import CAMERAS
-from custom_utils.misc import get_pose_world, create_pcd_hardcode, get_bounds, TASK_OFFSETS
+from custom_utils.misc import get_pose_world, create_pcd_hardcode, get_scene_bounds, TASK_OFFSETS
 
 pickle.DEFAULT_PROTOCOL=pickle.HIGHEST_PROTOCOL
 RANDOM_SEED=1125
@@ -30,7 +31,7 @@ class ArnoldDataset(Dataset):
         self.task = task
         self.pixel_size = 5.625e-3
         self.obs_type = obs_type
-        self.task_offset = TASK_OFFSETS[task]
+        self.task_offset = TASK_OFFSETS[task] / 100
         self.sample_weights = [0.2, 0.8]
         self.episode_dict = {}
         self.lang_embed_cache = {}
@@ -69,18 +70,21 @@ class ArnoldDataset(Dataset):
 
                 # pick phase
                 step = gt_frames[0]
-                bounds = get_bounds(step['robot_base'][0], offset=self.task_offset)
+                robot_base_pos = step['robot_base'][0].reshape(3, 1) / 100
+                scene_bounds = get_scene_bounds(robot_base_pos, offset=self.task_offset)
 
-                cmap, hmap, obs_dict = self.get_step_obs(step, bounds, self.pixel_size, type=self.obs_type)
+                cmap, hmap, obs_dict = self.get_step_obs(step, scene_bounds, self.pixel_size, type=self.obs_type)
                 hmap = np.tile(hmap[..., None], (1,1,3))
                 img = np.concatenate([cmap, hmap], axis=-1)
 
                 obj_pos = gt_frames[2]['position_rotation_world'][0] / 100
+                obj_pos = obj_pos - robot_base_pos
 
                 act_pos, act_rot = gt_frames[2]['position_rotation_world']
                 act_pos /= 100
                 act_rot = act_rot[[1,2,3,0]]   # wxyz to xyzw
                 target_points = self.get_act_label_from_abs(pos_abs=act_pos, rot_abs=act_rot)
+                target_points[:3] = target_points[:3] - robot_base_pos
 
                 gripper_open = 0
                 gripper_joint_positions = gt_frames[2]['gripper_joint_positions'] / 100
@@ -96,7 +100,7 @@ class ArnoldDataset(Dataset):
                     "target_gripper": gripper_open,   # binary
                     "low_dim_state": low_dim_state,   # [grip_open, left_finger, right_finger, timestep]
                     "language": language_instructions,   # str
-                    "bounds": bounds,   # [3, 2]
+                    "bounds": self.task_offset,   # [3, 2]
                     "pixel_size": self.pixel_size,   # scalar
                 }
 
@@ -104,11 +108,14 @@ class ArnoldDataset(Dataset):
 
                 # place phase
                 step = gt_frames[2]
-                bounds = get_bounds(step['robot_base'][0], offset=self.task_offset)
+                robot_base_pos = step['robot_base'][0].reshape(3, 1) / 100
+                scene_bounds = get_scene_bounds(robot_base_pos, offset=self.task_offset)
 
-                cmap, hmap, obs_dict = self.get_step_obs(step, bounds, self.pixel_size, type=self.obs_type)
+                cmap, hmap, obs_dict = self.get_step_obs(step, scene_bounds, self.pixel_size, type=self.obs_type)
                 hmap = np.tile(hmap[..., None], (1,1,3))
                 img = np.concatenate([cmap, hmap], axis=-1)
+
+                obj_pos = step['position_rotation_world'][0] / 100 - robot_base_pos
                 
                 if self.task in ['pour_water', 'transfer_water']:
                     # water, compose actions of two frames
@@ -121,6 +128,7 @@ class ArnoldDataset(Dataset):
                 act_pos /= 100
                 act_rot = act_rot[[1,2,3,0]]   # wxyz to xyzw
                 target_points = self.get_act_label_from_abs(pos_abs=act_pos, rot_abs=act_rot)
+                target_points[:3] = target_points[:3] - robot_base_pos
 
                 gripper_open = 0
                 gripper_joint_positions = gt_frames[3]['gripper_joint_positions'] / 100
@@ -136,7 +144,7 @@ class ArnoldDataset(Dataset):
                     "target_gripper": gripper_open,   # binary
                     "low_dim_state": low_dim_state,   # [grip_open, left_finger, right_finger, timestep]
                     "language": language_instructions,   # str
-                    "bounds": bounds,   # [3, 2]
+                    "bounds": self.task_offset,   # [3, 2]
                     "pixel_size": self.pixel_size,   # scalar
                 }
 
@@ -163,7 +171,7 @@ class ArnoldDataset(Dataset):
             act_idx = 1 + np.random.choice(2, size=1, p=self.sample_weights)
             demo_idx = np.random.randint(len(self.episode_dict[obj_idx][f'act{act_idx}']), size=1)
             obj_act_demo_tuple = (obj_idx, act_idx, demo_idx)
-            if obj_act_tuple not in sampled_idx:
+            if obj_act_demo_tuple not in sampled_idx:
                 samples.append(self.episode_dict[obj_idx][f'act{act_idx}'][demo_idx])
         
         return samples
@@ -221,11 +229,11 @@ class ArnoldDataset(Dataset):
         lang_embeds = []
         for sen in instructions:
             if sen not in self.lang_embed_cache:
-                # TODO: check encoding method and padding necessity
-                sen_embed = lang_encoder.encode_text(sen)
+                sen_embed = lang_encoder.encode_text([sen])
+                sen_embed = sen_embed[0]
                 self.lang_embed_cache.update({sen: sen_embed})
             
             lang_embeds.append(self.lang_embed_cache[sen])
         
-        lang_embeds = torch.cat(lang_embeds, dim=0)
+        lang_embeds = torch.stack(lang_embeds, dim=0)
         return lang_embeds

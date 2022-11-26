@@ -1,108 +1,58 @@
-from peract.arm.optim.lamb import Lamb
-
-from torch import nn
 import copy
+import clip
 import torch
-from peract.voxel_grid import VoxelGrid
-import numpy as np
+import torch.nn as nn
 import torch.nn.functional as F
-from peract.custom_utils import _preprocess_inputs,IMAGE_SIZE,CAMERAS
-from peract.arm.utils import visualise_voxel, discrete_euler_to_quaternion, get_gripper_render_pose
+import numpy as np
+from operator import mul
+from einops import rearrange, repeat
+from functools import reduce as funtool_reduce
 from transformers import T5Tokenizer, T5EncoderModel
+
+from custom_utils.misc import CAMERAS, IMAGE_SIZE
+from .optimizer import Lamb
+from .utils import preprocess_inputs, discrete_euler_to_quaternion
+from .network import cache_fn, PreNorm, Attention, FeedForward, DenseBlock, SpatialSoftmax3D, Conv3DBlock, Conv3DUpsampleBlock
+
+MIN_DENOMINATOR = 1e-12
+INCLUDE_PER_VOXEL_COORD = False
 
 
 class T5_encoder(nn.Module):
-    def __init__(self, cfg_path):
+    def __init__(self, cfg_path, device):
+        self.device = device
         self.tokenizer = T5Tokenizer.from_pretrained(cfg_path)
-        self.encoder = T5EncoderModel.from_pretrained(cfg_path)
+        self.encoder = T5EncoderModel.from_pretrained(cfg_path).to(device)
     
     def encode_text(self, text):
-        tokens = self.tokenizer(text, return_tensors='pt')
-        output = self.encoder(tokens.input_ids, attention_mask=tokens.attention_mask)
+        # 77 is the sequence length in CLIP
+        tokenized = self.tokenizer(text, padding='max_length', max_length=77, return_tensors='pt')
+        tokens, attn_mask = tokenized.input_ids.to(self.device), tokenized.attention_mask.to(self.device)
+        output = self.encoder(tokens, attn_mask)
         return output.last_hidden_state
 
 
-class PreNorm(nn.Module):
-    def __init__(self, dim, fn, context_dim=None):
+class CLIP_encoder(nn.Module):
+    def __init__(self, device):
         super().__init__()
-        self.fn = fn
-        self.norm = nn.LayerNorm(dim)
-        self.norm_context = nn.LayerNorm(context_dim) if exists(context_dim) else None
+        self.device = device
+        self.model, preprocess = clip.load("RN50", device=device)
+    
+    def encode_text(self, text):
+        tokens = clip.tokenize(text)
+        tokens = tokens.to(self.device)
+        x = self.model.token_embedding(tokens).type(self.model.dtype)   # [B, T, D]
 
-    def forward(self, x, **kwargs):
-        x = self.norm(x)
+        x = x + self.model.positional_embedding.type(self.model.dtype)
+        x = x.permute(1, 0, 2)   # BTD -> TBD
+        x = self.model.transformer(x)
+        x = x.permute(1, 0, 2)   # TBD -> BTD
+        x = self.model.ln_final(x).type(self.model.dtype)
 
-        if exists(self.norm_context):
-            context = kwargs['context']
-            normed_context = self.norm_context(context)
-            kwargs.update(context=normed_context)
-
-        return self.fn(x, **kwargs)
-
-
-class GEGLU(nn.Module):
-    def forward(self, x):
-        x, gates = x.chunk(2, dim=-1)
-        return x * F.gelu(gates)
-
-
-class FeedForward(nn.Module):
-    def __init__(self, dim, mult=4):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(dim, dim * mult * 2),
-            GEGLU(),
-            nn.Linear(dim * mult, dim)
-        )
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class Attention(nn.Module): # is all you need. Living up to its name. 
-    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0.0):
-        super().__init__()
-        inner_dim = dim_head * heads
-        context_dim = default(context_dim, query_dim)
-        self.scale = dim_head ** -0.5
-        self.heads = heads
-
-        self.to_q = nn.Linear(query_dim, inner_dim, bias=False)
-        self.to_kv = nn.Linear(context_dim, inner_dim * 2, bias=False)
-        self.to_out = nn.Linear(inner_dim, query_dim)
-
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x, context=None, mask=None):
-        h = self.heads
-
-        q = self.to_q(x)
-        context = default(context, x)
-        k, v = self.to_kv(context).chunk(2, dim=-1)
-
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
-
-        sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
-
-        if exists(mask):
-            mask = rearrange(mask, 'b ... -> b (...)')
-            max_neg_value = -torch.finfo(sim.dtype).max
-            mask = repeat(mask, 'b j -> (b h) () j', h=h)
-            sim.masked_fill_(~mask, max_neg_value)
-
-        # attention
-        attn = sim.softmax(dim=-1)
-
-        # dropout
-        attn = self.dropout(attn)
-
-        out = einsum('b i j, b j d -> b i d', attn, v)
-        out = rearrange(out, '(b h) n d -> b n (h d)', h=h)
-        return self.to_out(out)
+        return x
 
 
 # PerceiverIO adapted for 6-DoF manipulation
-
 class PerceiverIO(nn.Module):
     def __init__(
             self,
@@ -790,7 +740,7 @@ class PerceiverActorAgent():
         
         proprio = replay_sample['low_dim_state']
        
-        obs, pcd = _preprocess_inputs(replay_sample)
+        obs, pcd = preprocess_inputs(replay_sample)
 
         # TODO: data augmentation by applying SE(3) pertubations to obs and actions
 
@@ -843,7 +793,7 @@ class PerceiverActorAgent():
         # metric scene bounds
         bounds = bounds_tp1 = self._coordinate_bounds
 
-        obs, pcd = _preprocess_inputs(replay_sample)
+        obs, pcd = preprocess_inputs(replay_sample)
 
         # TODO: data augmentation by applying SE(3) pertubations to obs and actions
 

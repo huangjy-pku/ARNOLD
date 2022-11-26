@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import cliport.models as models
-import cliport.utils.utils as utils
+import cliport6d.models as models
+import cliport6d.utils.utils as utils
 
 
 class Attention(nn.Module):

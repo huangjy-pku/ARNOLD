@@ -2,9 +2,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from cliport.models.core.attention import Attention
-import cliport.models as models
-import cliport.models.core.fusion as fusion
+from cliport6d.models.core.attention import Attention
+import cliport6d.models as models
+import cliport6d.models.core.fusion as fusion
 
 
 class TwoStreamAttentionLangFusion(Attention):

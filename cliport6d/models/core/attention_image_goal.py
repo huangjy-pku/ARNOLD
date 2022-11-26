@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 
 
-from cliport.models.core.attention import Attention
+from cliport6d.models.core.attention import Attention
 
 
 class AttentionImageGoal(Attention):

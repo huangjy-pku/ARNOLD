@@ -14,7 +14,7 @@ from pathlib import Path
 from scipy.spatial.transform import Rotation as R
 
 from cliport6d.agent import TwoStreamClipLingUNetLatTransporterAgent
-from custom_utils.misc import get_obs, get_bounds, get_pose_relat, get_pose_world, TASK_OFFSETS
+from custom_utils.misc import get_obs, get_pose_relat, get_pose_world, TASK_OFFSETS
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(CURRENT_DIR, '../'))   # NewPipeline root
@@ -108,8 +108,7 @@ def get_action(scene_loader, simulation_context, agent, franka, c_controller, np
 
     instruction = npz_file['gt'][0]['instruction']
 
-    bounds = get_bounds(robot_pos, offset=offset, cm_to_m=False)
-    bounds /= 100
+    bounds = offset / 100
     with torch.no_grad():
         inp_img, lang_goal, p0, output_dict = agent.act(obs, [instruction], bounds=bounds, pixel_size=5.625e-3)
     
@@ -117,6 +116,7 @@ def get_action(scene_loader, simulation_context, agent, franka, c_controller, np
     # m to cm
     trans[[0,2]] *= output_dict['place_xy']
     trans[1] *= output_dict['place_z']
+    trans += robot_pos
 
     rotation = np.array([output_dict['place_theta'], output_dict['pitch'], output_dict['roll']])
     rotation = R.from_euler('zyx', rotation, degrees=False).as_matrix()

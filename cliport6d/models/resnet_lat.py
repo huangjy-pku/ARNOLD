@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# import cliport.utils.utils.utils as utils
+# import cliport6d.utils.utils.utils as utils
 
-from cliport.models.resnet import ConvBlock, IdentityBlock
+from cliport6d.models.resnet import ConvBlock, IdentityBlock
 
 class ResNet45_10s(nn.Module):
     def __init__(self, input_shape, output_dim, cfg, device, preprocess):

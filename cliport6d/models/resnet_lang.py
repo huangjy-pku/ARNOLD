@@ -2,10 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import cliport.utils.utils as utils
+import cliport6d.utils.utils as utils
 from transformers import DistilBertTokenizer, DistilBertModel
-from cliport.models.core import fusion
-from cliport.models.resnet import ConvBlock, IdentityBlock
+from cliport6d.models.core import fusion
+from cliport6d.models.resnet import ConvBlock, IdentityBlock
 
 
 class ResNet43_8s_lang(nn.Module):

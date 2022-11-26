@@ -1,34 +1,36 @@
 """
 For example, run:
-    python train_peract.py --data_dir /mnt/huangjiangyong/VRKitchen/pickup_object --task pickup_object --obs_type rgb \
-                           --batch_size 4 --steps 20000 --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt_peract > train.log
+    python train_peract.py --data_dir /mnt/huangjiangyong/VRKitchen/pickup_object --task pickup_object \
+                           --obs_type rgb --lang_encoder clip --batch_size 4 --steps 20000 \
+                           --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt_peract > train.log
 """
 
 import os
 import time
 import clip
 import torch
+import argparse
 import numpy as np
 from tqdm import trange
 from dataset import ArnoldDataset
-from peract.model import PerceiverIO, PerceiverActorAgent
+from torch.utils.tensorboard import SummaryWriter
+from peract.model import CLIP_encoder, T5_encoder, PerceiverIO, PerceiverActorAgent
 from peract.utils import point_to_voxel_index, normalize_quaternion, quaternion_to_discrete_euler
-from peract.utils import CAMERAS, IMAGE_SIZE, VOXEL_SIZES, ROTATION_RESOLUTION, SCENE_BOUNDS
+from custom_utils.misc import CAMERAS, IMAGE_SIZE, TASK_OFFSET_BOUNDS, VOXEL_SIZES, ROTATION_RESOLUTION, T5_CFG
 
 
 def create_lang_encoder(encoder_key, device):
     if encoder_key == 'clip':
-        model, preprocess = clip.load("RN50", device=device)
-        lang_encoder = model.transformer
+        lang_encoder = CLIP_encoder(device)
     elif encoder_key == 't5':
-        raise NotImplementedError()
+        raise T5_encoder(T5_CFG, device)
     else:
         raise ValueError('Language encoder key not supported')
     
     return lang_encoder
 
 
-def create_agent(device):
+def create_agent(args, device):
     perceiver_encoder = PerceiverIO(
         depth=6,
         iterations=1,
@@ -56,10 +58,10 @@ def create_agent(device):
     )
 
     peract_agent = PerceiverActorAgent(
-        coordinate_bounds=SCENE_BOUNDS,
+        coordinate_bounds=TASK_OFFSET_BOUNDS[args.task],
         perceiver_encoder=perceiver_encoder,
         camera_names=CAMERAS,
-        batch_size=batch_size,
+        batch_size=args.batch_size,
         voxel_size=VOXEL_SIZES[0],
         voxel_feature_size=3,
         num_rotation_classes=72,
@@ -89,6 +91,8 @@ def main(args):
     agent = create_agent(device)
     agent.to(device)
 
+    lang_encoder = create_lang_encoder(args.lang_encoder, device)
+
     start_step = 0
     if args.resume:
         if os.path.isfile(args.resume):
@@ -103,11 +107,12 @@ def main(args):
     print(f'Training {args.steps} steps with batch_size = {args.batch_size}')
     start_time = time.time()
     for iteration in trange(start_step, args.steps):
-        batch_data = train_dataset.sample(batch_size)
+        batch_data = train_dataset.sample(args.batch_size)
 
         obs_dict = {}
         language_instructions = []
         target_points = []
+        gripper_open = []
         low_dim_state = []
         for data in batch_data:
             for k, v in data['obs_dict'].items():
@@ -116,28 +121,30 @@ def main(args):
                 else:
                     obs_dict[k].append(v)
             
-            language_instructions.append(data['language'])
             target_points.append(data['target_points'])
+            gripper_open.append(data['target_gripper'])
+            language_instructions.append(data['language'])
             low_dim_state.append(data['low_dim_state'])
 
         for k, v in obs_dict.items():
+            v = v.transpose(2, 0, 1)   # peract requires input as [C, H, W]
             obs_dict[k] = np.stack(v, axis=0)
         
         target_points = np.stack(target_points, axis=0)
+        gripper_open = np.stack(gripper_open, axis=0)
         low_dim_state = np.stack(low_dim_state, axis=0)
 
-        # peract
         bs = len(language_instructions)
 
         trans_action_coords = target_points[:, [0, 2, 1]]
-        trans_action_indices = point_to_voxel_index(trans_action_coords, vox_size, bounds)
+        trans_action_indices = point_to_voxel_index(trans_action_coords, VOXEL_SIZES[0], TASK_OFFSET_BOUNDS[args.task])
 
         rot_action_quat = target_points[:, 3:]
         rot_action_quat = normalize_quaternion(rot_action_quat)
         rot_action_indices = quaternion_to_discrete_euler(rot_action_quat, ROTATION_RESOLUTION)
-        rot_grip_action_indices = np.concatenate([rot_action_indices, grip_action.reshape(-1, 1)], axis=-1)
+        rot_grip_action_indices = np.concatenate([rot_action_indices, gripper_open], axis=-1)
 
-        lang_goal_embs = dataset.get_lang_embed(lang_encoder, language_instructions)
+        lang_goal_embs = train_dataset.get_lang_embed(lang_encoder, language_instructions)
 
         inp = {}
         inp.update({obs_dict})
@@ -160,10 +167,13 @@ def main(args):
         if iteration % args.log_freq == 0:
             elapsed_time = (time.time() - start_time) / 60.0
             print(f'Total Loss: {running_loss} | Elapsed Time: {elapsed_time} mins')
+            writer.add_scalar('total_loss', running_loss, iteration)
         
         if iteration % args.save_freq == 0:
             path = os.path.join(args.checkpoint_path, f'model_{iteration}.pth')
             agent.save_model(path, iteration)
+    
+    writer.close()
 
 
 if __name__ == '__main__':
@@ -178,6 +188,7 @@ if __name__ == '__main__':
     parser.add_argument('--save-freq', default=5000, type=int)
     parser.add_argument('--checkpoint_path', type=str, metavar='PATH')
     parser.add_argument('--resume', default=None, type=str, help='resume training from checkpoint file')
+    parser.add_argument('--lang_encoder', type=str)
 
     args = parser.parse_args()
 

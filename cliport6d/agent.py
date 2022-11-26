@@ -7,14 +7,14 @@ import cv2
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
-from cliport.models.streams.one_stream_attention_lang_fusion import OneStreamAttentionLangFusion
-from cliport.models.streams.one_stream_transport_lang_fusion import OneStreamTransportLangFusion
+from cliport6d.models.streams.one_stream_attention_lang_fusion import OneStreamAttentionLangFusion
+from cliport6d.models.streams.one_stream_transport_lang_fusion import OneStreamTransportLangFusion
 
-import cliport.utils.utils as utils
-from cliport.models.core.attention import Attention
-from cliport.models.core.transport import Transport, Transport6Dof
-from cliport.models.streams.two_stream_attention_lang_fusion import TwoStreamAttentionLangFusion, TwoStreamAttentionLangFusionLat
-from cliport.models.streams.two_stream_transport_lang_fusion import TwoStreamTransportLangFusion, TwoStreamTransportLangFusionLat
+import cliport6d.utils.utils as utils
+from cliport6d.models.core.attention import Attention
+from cliport6d.models.core.transport import Transport, Transport6Dof
+from cliport6d.models.streams.two_stream_attention_lang_fusion import TwoStreamAttentionLangFusion, TwoStreamAttentionLangFusionLat
+from cliport6d.models.streams.two_stream_transport_lang_fusion import TwoStreamTransportLangFusion, TwoStreamTransportLangFusionLat
 
 class TransporterAgent(nn.Module):
     def __init__(self, name, device, cfg):

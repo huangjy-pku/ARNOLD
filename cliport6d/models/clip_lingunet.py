@@ -1,11 +1,11 @@
 import torch.nn as nn
 import torch.nn.functional as F
 
-import cliport.utils.utils as utils
-from cliport.models.resnet import IdentityBlock, ConvBlock
-from cliport.models.core.unet import Up
-from cliport.models.core import fusion
-from cliport.models.clip_lingunet_lat import CLIPLingUNetLat
+import cliport6d.utils.utils as utils
+from cliport6d.models.resnet import IdentityBlock, ConvBlock
+from cliport6d.models.core.unet import Up
+from cliport6d.models.core import fusion
+from cliport6d.models.clip_lingunet_lat import CLIPLingUNetLat
 
 
 class CLIPLingUNet(CLIPLingUNetLat):

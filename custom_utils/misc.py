@@ -3,12 +3,13 @@ import numpy as np
 from .compute_points import compute_points
 
 
+# -------------------------- constants for cliport6d --------------------------
 TASK_OFFSETS = {
     'pickup_object': np.array([[-108, 108], [0, 90], [-108, 108]], dtype=float),
     'reorient_object': np.array([[-90, 90], [0, 90], [-90, 90]], dtype=float),
     'open_drawer': np.array([[-108, 108], [0, 130], [-108, 108]], dtype=float),
     'close_drawer': np.array([[-108, 108], [0, 130], [-108, 108]], dtype=float),
-}
+}   # cm
 
 TASK_RESOLUTIONS = {
     'pickup_object': 384,
@@ -16,6 +17,22 @@ TASK_RESOLUTIONS = {
     'open_drawer': 384,
     'close_drawer': 384,
 }
+# -------------------------- constants for cliport6d --------------------------
+
+
+# -------------------------- constants for peract --------------------------
+TASK_OFFSET_BOUNDS = {
+    'pickup_object': [-1.08, 0, -1.08, 1.08, 2.16, 1.08],
+    'reorient_object': [-0.9, 0, -0.9, 0.9, 1.8, 0.9],
+    'open_drawer': [-1.08, 0, -1.08, 1.08, 2.16, 1.08],
+    'close_drawer': [-1.08, 0, -1.08, 1.08, 2.16, 1.08],
+}   # m, for peract
+
+IMAGE_SIZE = 128
+VOXEL_SIZES = [120]
+ROTATION_RESOLUTION = 5
+T5_CFG = '/mnt/huangjiangyong/t5-base'
+# -------------------------- constants for peract --------------------------
 
 
 def collate_fn(batch):
@@ -142,12 +159,11 @@ def create_pcd_hardcode(camera, depth, cm_to_m=True):
     return points_world / 100 if cm_to_m else points_world
 
 
-def get_bounds(robot_base, offset, cm_to_m=True):
-    # offset shape: [3, 2]
-    robot_base = robot_base.reshape(3, 1)
+def get_scene_bounds(robot_base, offset):
+    # m, offset shape: [3, 2]
     bounds = robot_base + offset
     bounds[[1,2]] = bounds[[2,1]]
-    return bounds / 100 if cm_to_m else bounds
+    return bounds
 
 
 class Observation(object):
