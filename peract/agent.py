@@ -728,7 +728,7 @@ class PerceiverActorAgent():
     def predict(self, replay_sample: dict) -> dict:
         # sample
         
-        lang_goal_embs = replay_sample['lang_goal_embs'][:, -1].float()
+        lang_goal_embs = replay_sample['lang_goal_embs'].float()
         
         # metric scene bounds
         bounds = bounds_tp1 = self._coordinate_bounds
@@ -738,7 +738,7 @@ class PerceiverActorAgent():
         # print(replay_sample['low_dim_state'].shape)
         # exit()
         
-        proprio = replay_sample['low_dim_state']
+        proprio = replay_sample['low_dim_state'].float()
        
         obs, pcd = preprocess_inputs(replay_sample)
 

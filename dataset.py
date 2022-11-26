@@ -69,8 +69,8 @@ class ArnoldDataset(Dataset):
                 language_instructions = gt_frames[0]['instruction']
 
                 # pick phase
-                step = gt_frames[0]
-                robot_base_pos = step['robot_base'][0].reshape(3, 1) / 100
+                step = gt_frames[0].copy()
+                robot_base_pos = step['robot_base'][0] / 100
                 scene_bounds = get_scene_bounds(robot_base_pos, offset=self.task_offset)
 
                 cmap, hmap, obs_dict = self.get_step_obs(step, scene_bounds, self.pixel_size, type=self.obs_type)
@@ -80,7 +80,8 @@ class ArnoldDataset(Dataset):
                 obj_pos = gt_frames[2]['position_rotation_world'][0] / 100
                 obj_pos = obj_pos - robot_base_pos
 
-                act_pos, act_rot = gt_frames[2]['position_rotation_world']
+                act_pos = gt_frames[2]['position_rotation_world'][0].copy()
+                act_rot = gt_frames[2]['position_rotation_world'][1].copy()
                 act_pos /= 100
                 act_rot = act_rot[[1,2,3,0]]   # wxyz to xyzw
                 target_points = self.get_act_label_from_abs(pos_abs=act_pos, rot_abs=act_rot)
@@ -107,8 +108,8 @@ class ArnoldDataset(Dataset):
                 self.episode_dict[obj_id]['act1'].append(episode_dict1)
 
                 # place phase
-                step = gt_frames[2]
-                robot_base_pos = step['robot_base'][0].reshape(3, 1) / 100
+                step = gt_frames[2].copy()
+                robot_base_pos = step['robot_base'][0] / 100
                 scene_bounds = get_scene_bounds(robot_base_pos, offset=self.task_offset)
 
                 cmap, hmap, obs_dict = self.get_step_obs(step, scene_bounds, self.pixel_size, type=self.obs_type)
@@ -116,14 +117,14 @@ class ArnoldDataset(Dataset):
                 img = np.concatenate([cmap, hmap], axis=-1)
 
                 obj_pos = step['position_rotation_world'][0] / 100 - robot_base_pos
-                
+
+                act_pos = gt_frames[3]['position_rotation_world'][0].copy()
                 if self.task in ['pour_water', 'transfer_water']:
                     # water, compose actions of two frames
-                    act_pos = gt_frames[3]['position_rotation_world'][0]
-                    act_rot = gt_frames[4]['position_rotation_world'][1]
+                    act_rot = gt_frames[4]['position_rotation_world'][1].copy()
                 else:
                     # default
-                    act_pos, act_rot = gt_frames[3]['position_rotation_world']
+                    act_rot = gt_frames[3]['position_rotation_world'][1].copy()
                 
                 act_pos /= 100
                 act_rot = act_rot[[1,2,3,0]]   # wxyz to xyzw
@@ -155,24 +156,25 @@ class ArnoldDataset(Dataset):
     def __len__(self):
         num_demos = 0
         for k, v in self.episode_dict.items():
-            num_demos += len(v['act'])
+            num_demos += len(v['act1'])
         return num_demos
     
     def __getitem__(self, index):
-        obj_idx = np.random.randint(len(self.episode_dict), size=1)
-        act_idx = 1 + np.random.choice(2, size=1, p=self.sample_weights)
+        obj_idx = random.choice(list(self.episode_dict.keys()))
+        act_idx = 1 + np.random.choice(2, size=1, p=self.sample_weights)[0]
         return random.choice(self.episode_dict[obj_idx][f'act{act_idx}'])
     
     def sample(self, batch_size):
         samples = []
         sampled_idx = []
         while len(samples) < batch_size:
-            obj_idx = np.random.randint(len(self.episode_dict), size=1)
-            act_idx = 1 + np.random.choice(2, size=1, p=self.sample_weights)
-            demo_idx = np.random.randint(len(self.episode_dict[obj_idx][f'act{act_idx}']), size=1)
+            obj_idx = random.choice(list(self.episode_dict.keys()))
+            act_idx = 1 + np.random.choice(2, size=1, p=self.sample_weights)[0]
+            demo_idx = np.random.randint(len(self.episode_dict[obj_idx][f'act{act_idx}']), size=1)[0]
             obj_act_demo_tuple = (obj_idx, act_idx, demo_idx)
             if obj_act_demo_tuple not in sampled_idx:
                 samples.append(self.episode_dict[obj_idx][f'act{act_idx}'][demo_idx])
+                sampled_idx.append(obj_act_demo_tuple)
         
         return samples
 

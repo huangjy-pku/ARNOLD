@@ -16,7 +16,7 @@ def point_to_voxel_index(points: np.ndarray, voxel_size: np.ndarray, coord_bound
 def normalize_quaternion(quat):
     quat = np.array(quat) / np.linalg.norm(quat, axis=-1, keepdims=True)
     quat = quat.reshape(-1, 4)
-    for i in quat.shape[0]:
+    for i in range(quat.shape[0]):
         if quat[i, -1] < 0:
             quat[i] = -quat[i]
     return quat

@@ -164,11 +164,11 @@ def train(data_loader, model, optimizer, scheduler, epoch, losses, args, timer, 
         bounds = np.stack(bounds, axis=0)
 
         # y,z axis swapped
-        p0 = np.int16((attention_points[:, [0,2]]-bounds[:, :2, 0])/pixel_size)
-        p0_z = attention_points[:, 1]-bounds[:, 2, 0]
+        p0 = np.int16((attention_points[:, [0,2]]-bounds[:, [0,2], 0])/pixel_size)
+        p0_z = attention_points[:, 1]-bounds[:, 1, 0]
 
-        p1 = np.int16((target_points[:, [0,2]]-bounds[:, :2, 0])/pixel_size)
-        p1_z = target_points[:, 1]-bounds[:, 2, 0]
+        p1 = np.int16((target_points[:, [0,2]]-bounds[:, [0,2], 0])/pixel_size)
+        p1_z = target_points[:, 1]-bounds[:, 1, 0]
 
         p0 = p0[:,::-1]
         p1 = p1[:,::-1]
@@ -179,8 +179,10 @@ def train(data_loader, model, optimizer, scheduler, epoch, losses, args, timer, 
         rot_transition = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]]).astype(float)
         p1_rotation = R.from_matrix(rot_transition @ p1_rotation).as_euler('zyx', degrees=True)
 
-        inp = {'img':img, 'lang_goal': language_instructions,
-            'p0':p0, 'p0_z':p0_z, 'p1':p1, 'p1_z':p1_z, 'p1_rotation':p1_rotation}
+        inp = {
+            'img': img, 'lang_goal': language_instructions,
+            'p0': p0, 'p0_z': p0_z, 'p1': p1, 'p1_z': p1_z, 'p1_rotation': p1_rotation
+        }
         loss_dict = model(inp)
 
         if losses == {}:
@@ -215,7 +217,7 @@ def train(data_loader, model, optimizer, scheduler, epoch, losses, args, timer, 
                 epoch + 1, args.epochs, batch_step, len(data_loader), time_elapsed, time_left, time_estimate,
                 batch_time=batch_time, data_time=data_time)
             
-            tmp_str += f'total_loss: {loss.item():.4f}'
+            tmp_str += f'total_loss: {loss.item():.4f}  '
             writer.add_scalar('total_loss', loss.item(), batch_time.count)
 
             for loss_term in losses:
@@ -249,11 +251,11 @@ def val(data_loader, model, args, epoch):
         bounds = np.stack(bounds, axis=0)
         
         # y,z axis swapped
-        p0 = np.int16((attention_points[:, [0,2]]-bounds[:, :2, 0])/pixel_size)
-        p0_z = attention_points[:, 1]-bounds[:, 2, 0]
+        p0 = np.int16((attention_points[:, [0,2]]-bounds[:, [0,2], 0])/pixel_size)
+        p0_z = attention_points[:, 1]-bounds[:, 1, 0]
 
-        p1 = np.int16((target_points[:, [0,2]]-bounds[:, :2, 0])/pixel_size)
-        p1_z = target_points[:, 1]-bounds[:, 2, 0]
+        p1 = np.int16((target_points[:, [0,2]]-bounds[:, [0,2], 0])/pixel_size)
+        p1_z = target_points[:, 1]-bounds[:, 1, 0]
 
         p0 = p0[:,::-1]
         p1 = p1[:,::-1]
@@ -264,8 +266,10 @@ def val(data_loader, model, args, epoch):
         rot_transition = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]]).astype(float)
         p1_rotation = R.from_matrix(rot_transition @ p1_rotation).as_euler('zyx', degrees=True)
 
-        inp = {'img':img, 'lang_goal': language_instructions,
-            'p0':p0, 'p0_z':p0_z, 'p1':p1, 'p1_z':p1_z, 'p1_rotation':p1_rotation}
+        inp = {
+            'img': img, 'lang_goal': language_instructions,
+            'p0': p0, 'p0_z': p0_z, 'p1': p1, 'p1_z': p1_z, 'p1_rotation': p1_rotation
+        }
         with torch.no_grad():
             loss_dict = model(inp)
         if losses == {}:

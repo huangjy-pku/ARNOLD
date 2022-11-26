@@ -109,6 +109,7 @@ def get_action(scene_loader, simulation_context, agent, franka, c_controller, np
     instruction = npz_file['gt'][0]['instruction']
 
     bounds = offset / 100
+    bounds = bounds[[0, 2, 1]]   # y-up to z-up
     with torch.no_grad():
         inp_img, lang_goal, p0, output_dict = agent.act(obs, [instruction], bounds=bounds, pixel_size=5.625e-3)
     

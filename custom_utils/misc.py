@@ -161,6 +161,7 @@ def create_pcd_hardcode(camera, depth, cm_to_m=True):
 
 def get_scene_bounds(robot_base, offset):
     # m, offset shape: [3, 2]
+    robot_base = robot_base.reshape(3, 1)
     bounds = robot_base + offset
     bounds[[1,2]] = bounds[[2,1]]
     return bounds

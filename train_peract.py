@@ -14,7 +14,7 @@ import numpy as np
 from tqdm import trange
 from dataset import ArnoldDataset
 from torch.utils.tensorboard import SummaryWriter
-from peract.model import CLIP_encoder, T5_encoder, PerceiverIO, PerceiverActorAgent
+from peract.agent import CLIP_encoder, T5_encoder, PerceiverIO, PerceiverActorAgent
 from peract.utils import point_to_voxel_index, normalize_quaternion, quaternion_to_discrete_euler
 from custom_utils.misc import CAMERAS, IMAGE_SIZE, TASK_OFFSET_BOUNDS, VOXEL_SIZES, ROTATION_RESOLUTION, T5_CFG
 
@@ -88,8 +88,7 @@ def main(args):
     
     writer = SummaryWriter(log_dir=args.checkpoint_path)
 
-    agent = create_agent(device)
-    agent.to(device)
+    agent = create_agent(args, device)
 
     lang_encoder = create_lang_encoder(args.lang_encoder, device)
 
@@ -101,8 +100,6 @@ def main(args):
             print("=> loaded checkpoint '{}' (step {})".format(args.resume, start_step))
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
-
-    agent.train()
 
     print(f'Training {args.steps} steps with batch_size = {args.batch_size}')
     start_time = time.time()
@@ -117,7 +114,7 @@ def main(args):
         for data in batch_data:
             for k, v in data['obs_dict'].items():
                 if k not in obs_dict:
-                    obs_dict[k] = []
+                    obs_dict[k] = [v]
                 else:
                     obs_dict[k].append(v)
             
@@ -127,14 +124,13 @@ def main(args):
             low_dim_state.append(data['low_dim_state'])
 
         for k, v in obs_dict.items():
-            v = v.transpose(2, 0, 1)   # peract requires input as [C, H, W]
-            obs_dict[k] = np.stack(v, axis=0)
+            v = np.stack(v, axis=0)
+            obs_dict[k] = v.transpose(0, 3, 1, 2)   # peract requires input as [C, H, W]
         
-        target_points = np.stack(target_points, axis=0)
-        gripper_open = np.stack(gripper_open, axis=0)
-        low_dim_state = np.stack(low_dim_state, axis=0)
-
         bs = len(language_instructions)
+        target_points = np.stack(target_points, axis=0)
+        gripper_open = np.array(gripper_open).reshape(bs, 1)
+        low_dim_state = np.stack(low_dim_state, axis=0)
 
         trans_action_coords = target_points[:, [0, 2, 1]]
         trans_action_indices = point_to_voxel_index(trans_action_coords, VOXEL_SIZES[0], TASK_OFFSET_BOUNDS[args.task])
@@ -147,7 +143,7 @@ def main(args):
         lang_goal_embs = train_dataset.get_lang_embed(lang_encoder, language_instructions)
 
         inp = {}
-        inp.update({obs_dict})
+        inp.update(obs_dict)
         inp.update({
             'trans_action_indices': trans_action_indices,
             'rot_grip_action_indices': rot_grip_action_indices,
