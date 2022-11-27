@@ -131,3 +131,7 @@ dmypy.json
 # visualization
 *.jpg
 *.png
+
+# slurm
+*.slurm
+*.out

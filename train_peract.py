@@ -7,7 +7,6 @@ For example, run:
 
 import os
 import time
-import clip
 import torch
 import argparse
 import numpy as np
