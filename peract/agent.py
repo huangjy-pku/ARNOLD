@@ -24,6 +24,7 @@ class T5_encoder(nn.Module):
         self.tokenizer = T5Tokenizer.from_pretrained(cfg_path)
         self.encoder = T5EncoderModel.from_pretrained(cfg_path).to(device)
     
+    @torch.no_grad()
     def encode_text(self, text):
         # 77 is the sequence length in CLIP
         tokenized = self.tokenizer(text, padding='max_length', max_length=77, return_tensors='pt')
@@ -38,6 +39,7 @@ class CLIP_encoder(nn.Module):
         self.device = device
         self.model, preprocess = clip.load("RN50", device=device)
     
+    @torch.no_grad()
     def encode_text(self, text):
         tokens = clip.tokenize(text)
         tokens = tokens.to(self.device)
@@ -402,6 +404,7 @@ class VoxelGrid(nn.Module):
 
     def _scatter_mean(self, src: torch.Tensor, index: torch.Tensor, out: torch.Tensor,
                       dim: int = -1):
+        src = src.type(out.dtype)
         out = out.scatter_add_(dim, index, src)
 
         index_dim = dim
