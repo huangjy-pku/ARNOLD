@@ -32,6 +32,10 @@ IMAGE_SIZE = 128
 VOXEL_SIZES = [120]
 ROTATION_RESOLUTION = 5
 T5_CFG = '/mnt/huangjiangyong/t5-base'
+LANG_EMBED_DIM = {
+    'clip': 512,
+    't5': 768
+}
 # -------------------------- constants for peract --------------------------
 
 
@@ -252,7 +256,7 @@ class Observation(object):
 
 
 CAMERAS = ['front', 'left', 'base', 'wrist', 'wrist_bottom']
-def get_obs(franka, cspace_controller, gt, device, time_step, type='rgb'):
+def get_obs(franka, cspace_controller, gt, type='rgb'):
     # added: convert xzy to xyz
     from omni.isaac.core.utils.numpy.rotations import rot_matrices_to_quats
     def get_ee(cspace_controller):
@@ -314,10 +318,10 @@ def get_obs(franka, cspace_controller, gt, device, time_step, type='rgb'):
         wrist_bottom_point_cloud=obs['wrist_bottom_point_cloud'],
         gripper_open=gripper_open,
         gripper_pose=gripper_pose,
-        gripper_joint_positions = gripper_joint_positions,
+        gripper_joint_positions=gripper_joint_positions,
         misc=misc,
-        joint_positions= franka.get_joint_positions(),
-        joint_velocities= franka.get_joint_velocities(),
+        joint_positions=franka.get_joint_positions(),
+        joint_velocities=franka.get_joint_velocities(),
     )
     
     return ob

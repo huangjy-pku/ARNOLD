@@ -46,3 +46,20 @@ def preprocess_inputs(replay_sample):
         obs.append([rgb, pcd]) # obs contains both rgb and pointcloud (used in ARM for other baselines)
         pcds.append(pcd) # only pointcloud
     return obs, pcds
+
+
+def get_obs_batch_dict(obs):
+    rgb_list = [obs.front_rgb, obs.left_rgb, obs.base_rgb, obs.wrist_rgb, obs.wrist_bottom_rgb]
+
+    pcd_list = [obs.front_point_cloud, obs.left_point_cloud, obs.base_point_cloud, obs.wrist_point_cloud, obs.wrist_bottom_point_cloud]
+
+    obs_dict = {}
+    for n, rgb, pcd in zip(CAMERAS, rgb_list, pcd_list):
+        rgb = rgb[np.newaxis, ...]
+        pcd = pcd[np.newaxis, ...]
+
+        # peract requires input as [C, H, W]
+        obs_dict[f'{n}_rgb'] = rgb.transpose(0, 3, 1, 2)
+        obs_dict[f'{n}_point_cloud'] = pcd.transpose(0, 3, 1, 2)
+    
+    return obs_dict

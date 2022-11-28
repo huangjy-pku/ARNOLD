@@ -121,14 +121,13 @@ def main(args):
 
         writer.add_scalar('val_loss', val_loss, epoch)
 
-        save_name = args.checkpoint_path + '/conv_checkpoint_{}_{}'.format(args.baseline_mode, args.task)
+        save_name = args.checkpoint_path + '/conv_checkpoint_{}_{}'.format(args.task, args.obs_type)
 
         if val_loss <= best_val_loss:
             best_val_loss = val_loss
             save_name_best = save_name + '_best.pth'
             torch.save({
                 'epoch': epoch + 1,
-                'arch': args.baseline_mode,
                 'state_dict': model.state_dict(),
                 'optimizer' : optimizer.state_dict(),
                 'train_tasks': args.task
@@ -290,7 +289,7 @@ def val(data_loader, model, args, epoch):
 
 
 if __name__== '__main__':
-    parser = argparse.ArgumentParser(description='')
+    parser = argparse.ArgumentParser()
     
     parser.add_argument('--data_dir', type=str)
     parser.add_argument('--task', type=str)
@@ -302,7 +301,6 @@ if __name__== '__main__':
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR')
     parser.add_argument('--checkpoint_path', type=str, metavar='PATH')
     parser.add_argument('--resume', default=None, type=str, help='resume training from checkpoint file')
-    parser.add_argument('--baseline_mode', type=str, default='cliport_6dof')
     args = parser.parse_args()
 
     main(args)

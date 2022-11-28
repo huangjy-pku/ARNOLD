@@ -222,20 +222,26 @@ class ArnoldDataset(Dataset):
             return pos_abs
         else:
             return np.concatenate([pos_abs, rot_abs])
+
+
+class InstructionEmbedding():
+    def __init__(self, lang_encoder):
+        self.cache = {}
+        self.lang_encoder = lang_encoder
     
-    def get_lang_embed(self, lang_encoder, instructions):
+    def get_lang_embed(self, instructions):
         if isinstance(instructions, str):
             # a single sentence
             instructions = [instructions]
         
         lang_embeds = []
         for sen in instructions:
-            if sen not in self.lang_embed_cache:
-                sen_embed = lang_encoder.encode_text([sen])
+            if sen not in self.cache:
+                sen_embed = self.lang_encoder.encode_text([sen])
                 sen_embed = sen_embed[0]
-                self.lang_embed_cache.update({sen: sen_embed})
+                self.cache.update({sen: sen_embed})
             
-            lang_embeds.append(self.lang_embed_cache[sen])
+            lang_embeds.append(self.cache[sen])
         
         lang_embeds = torch.stack(lang_embeds, dim=0)
         return lang_embeds

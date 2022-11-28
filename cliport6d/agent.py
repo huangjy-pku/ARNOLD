@@ -517,6 +517,7 @@ class TransporterAgent_6Dof(TransporterAgent):
         img = img[None,...]
         return img
 
+    @torch.no_grad()
     def act(self, obs, lang_goal, goal=None, bounds=np.array([[-0.11,0.61],[-0.45, 0.45], [0.7, 1.5]]), pixel_size=5.625e-3, draw_result=True):
         img = self.obs_preprocess(obs, bounds, pixel_size)
         # Attention model forward pass.

@@ -11,25 +11,25 @@ import torch
 import argparse
 import numpy as np
 from tqdm import trange
-from dataset import ArnoldDataset
 from torch.utils.tensorboard import SummaryWriter
+from dataset import ArnoldDataset, InstructionEmbedding
 from peract.agent import CLIP_encoder, T5_encoder, PerceiverIO, PerceiverActorAgent
 from peract.utils import point_to_voxel_index, normalize_quaternion, quaternion_to_discrete_euler
-from custom_utils.misc import CAMERAS, IMAGE_SIZE, TASK_OFFSET_BOUNDS, VOXEL_SIZES, ROTATION_RESOLUTION, T5_CFG
+from custom_utils.misc import CAMERAS, IMAGE_SIZE, TASK_OFFSET_BOUNDS, VOXEL_SIZES, ROTATION_RESOLUTION, T5_CFG, LANG_EMBED_DIM
 
 
 def create_lang_encoder(encoder_key, device):
     if encoder_key == 'clip':
         lang_encoder = CLIP_encoder(device)
     elif encoder_key == 't5':
-        raise T5_encoder(T5_CFG, device)
+        lang_encoder = T5_encoder(T5_CFG, device)
     else:
         raise ValueError('Language encoder key not supported')
     
     return lang_encoder
 
 
-def create_agent(args, device):
+def create_agent(args, train, device):
     perceiver_encoder = PerceiverIO(
         depth=6,
         iterations=1,
@@ -54,6 +54,7 @@ def create_agent(args, device):
         voxel_patch_size=5,
         voxel_patch_stride=5,
         final_dim=64,
+        lang_embed_dim=LANG_EMBED_DIM[args.lang_encoder]
     )
 
     peract_agent = PerceiverActorAgent(
@@ -72,7 +73,7 @@ def create_agent(args, device):
         optimizer_type='lamb',
     )
 
-    peract_agent.build(training=True, device=device)
+    peract_agent.build(training=train, device=device)
 
     return peract_agent
 
@@ -87,9 +88,10 @@ def main(args):
     
     writer = SummaryWriter(log_dir=args.checkpoint_path)
 
-    agent = create_agent(args, device)
+    agent = create_agent(args, train=True, device=device)
 
     lang_encoder = create_lang_encoder(args.lang_encoder, device)
+    lang_embed_cache = InstructionEmbedding(lang_encoder)
 
     start_step = 0
     if args.resume:
@@ -139,7 +141,7 @@ def main(args):
         rot_action_indices = quaternion_to_discrete_euler(rot_action_quat, ROTATION_RESOLUTION)
         rot_grip_action_indices = np.concatenate([rot_action_indices, gripper_open], axis=-1)
 
-        lang_goal_embs = train_dataset.get_lang_embed(lang_encoder, language_instructions)
+        lang_goal_embs = lang_embed_cache.get_lang_embed(language_instructions)
 
         inp = {}
         inp.update(obs_dict)
@@ -153,8 +155,8 @@ def main(args):
 
         for k, v in inp.items():
             if not isinstance(v, torch.Tensor):
-                inp[k] = torch.from_numpy(v)
-            inp[k] = inp[k].to(device)
+                v = torch.from_numpy(v)
+            inp[k] = v.to(device)
 
         update_dict = agent.update(iteration, inp)
         running_loss = update_dict['total_loss']
@@ -165,14 +167,14 @@ def main(args):
             writer.add_scalar('total_loss', running_loss, iteration)
         
         if iteration % args.save_freq == 0:
-            path = os.path.join(args.checkpoint_path, f'model_{iteration}.pth')
+            path = os.path.join(args.checkpoint_path, f'model_{args.task}_{args.obs_type}_{args.lang_encoder}_{iteration}.pth')
             agent.save_model(path, iteration)
     
     writer.close()
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='')
+    parser = argparse.ArgumentParser()
     
     parser.add_argument('--data_dir', type=str)
     parser.add_argument('--task', type=str)

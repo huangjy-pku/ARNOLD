@@ -1,7 +1,7 @@
 """
 For example, run:
-    python eval.py --data_dir /mnt/huangjiangyong/VRKitchen/pickup_object --task pickup_object --obs_type rgb --use_gt 0 0 --visualize 1 \
-                   --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt/conv_checkpoint_cliport_6dof_pickup_object_best.pth
+    python eval.py --data_dir /mnt/huangjiangyong/VRKitchen/pickup_object --task pickup_object --agent peract --lang_encoder clip --obs_type rgb \
+                   --use_gt 0 0 --visualize 1 --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt/conv_checkpoint_cliport_6dof_pickup_object_best.pth
 """
 
 import os
@@ -13,7 +13,10 @@ import numpy as np
 from pathlib import Path
 from scipy.spatial.transform import Rotation as R
 
+from dataset import InstructionEmbedding
 from cliport6d.agent import TwoStreamClipLingUNetLatTransporterAgent
+from train_peract import create_agent, create_lang_encoder
+from peract.utils import get_obs_batch_dict
 from custom_utils.misc import get_obs, get_pose_relat, get_pose_world, TASK_OFFSETS
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -80,54 +83,86 @@ def load_scene(data, scene_loader, simulation_app, scene_properties, use_gpu_phy
     return scene_loader
 
 
-def load_agent(ckpt_path, device):
-    cfg = {
-        'train':{
-            'attn_stream_fusion_type': 'add',
-            'trans_stream_fusion_type': 'conv',
-            'lang_fusion_type': 'mult',
-            'n_rotations': 36,
-            'batchnorm': False
+def load_agent(args, device):
+    if args.agent == 'cliport6d':
+        model_cfg = {
+            'train': {
+                'attn_stream_fusion_type': 'add',
+                'trans_stream_fusion_type': 'conv',
+                'lang_fusion_type': 'mult',
+                'n_rotations': 36,
+                'batchnorm': False
+            }
         }
-    }
-    agent = TwoStreamClipLingUNetLatTransporterAgent(name='cliport_6dof', device=device, cfg=cfg, z_roll_pitch=True)
-    checkpoint = torch.load(ckpt_path, map_location=device)
-    agent.load_state_dict(checkpoint['state_dict'])
-    agent.eval()
-    agent.to(device)
-    del checkpoint
-    torch.cuda.empty_cache()
+        agent = TwoStreamClipLingUNetLatTransporterAgent(name='cliport_6dof', device=device, cfg=model_cfg, z_roll_pitch=True)
+        checkpoint = torch.load(args.checkpoint_path, map_location=device)
+        agent.load_state_dict(checkpoint['state_dict'])
+        agent.eval()
+        agent.to(device)
+    elif args.agent == 'peract':
+        agent = create_agent(args, train=False, device=device)
+        agent.load_model(args.checkpoint_path)
+    else:
+        raise ValueError(f'{args.agent} agent not supported')
     return agent
 
 
-def get_action(scene_loader, simulation_context, agent, franka, c_controller, npz_file, offset, obs_type='rgb'):
+def get_action(scene_loader, simulation_context, agent, franka, c_controller, npz_file, offset, timestep, device, agent_type, obs_type='rgb', lang_embed_cache=None):
     gt = scene_loader.render(simulation_context)
 
-    obs = get_obs(franka, c_controller, gt, 'cuda', 0, type=obs_type)
+    obs = get_obs(franka, c_controller, gt, type=obs_type)
     robot_pos, robot_rot = obs.misc['robot_base']
 
     instruction = npz_file['gt'][0]['instruction']
 
-    bounds = offset / 100
-    bounds = bounds[[0, 2, 1]]   # y-up to z-up
-    with torch.no_grad():
+    if agent_type == 'cliport6d':
+        bounds = offset / 100
+        bounds = bounds[[0, 2, 1]]   # y-up to z-up
+
         inp_img, lang_goal, p0, output_dict = agent.act(obs, [instruction], bounds=bounds, pixel_size=5.625e-3)
+        
+        trans = np.ones(3) * 100
+        # m to cm
+        trans[[0,2]] *= output_dict['place_xy']
+        trans[1] *= output_dict['place_z']
+        trans += robot_pos
+
+        rotation = np.array([output_dict['place_theta'], output_dict['pitch'], output_dict['roll']])
+        rotation = R.from_euler('zyx', rotation, degrees=False).as_matrix()
+        rot_transition = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]]).astype(float)
+        rotation = R.from_matrix(rot_transition @ rotation).as_quat()
+
+        # print(
+        #     f'Model output: xy={output_dict["place_xy"]}, z={output_dict["place_z"]}, '
+        #         f'theta={output_dict["place_theta"]/np.pi*180}, pitch={output_dict["pitch"]/np.pi*180}, roll={output_dict["roll"]/np.pi*180}'
+        # )
     
-    trans = np.ones(3) * 100
-    # m to cm
-    trans[[0,2]] *= output_dict['place_xy']
-    trans[1] *= output_dict['place_z']
-    trans += robot_pos
+    elif agent_type == 'peract':
+        input_dict = {}
 
-    rotation = np.array([output_dict['place_theta'], output_dict['pitch'], output_dict['roll']])
-    rotation = R.from_euler('zyx', rotation, degrees=False).as_matrix()
-    rot_transition = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]]).astype(float)
-    rotation = R.from_matrix(rot_transition @ rotation).as_quat()
+        obs_dict = get_obs_batch_dict(obs)
+        input_dict.update(obs_dict)
 
-    # print(
-    #     f'Model output: xy={output_dict["place_xy"]}, z={output_dict["place_z"]}, '
-    #         f'theta={output_dict["place_theta"]/np.pi*180}, pitch={output_dict["pitch"]/np.pi*180}, roll={output_dict["roll"]/np.pi*180}'
-    # )
+        lang_goal_embs = lang_embed_cache.get_lang_embed(instruction)
+        gripper_open = obs.gripper_open
+        gripper_joint_positions = np.clip(obs.gripper_joint_positions, 0, 0.04)
+        low_dim_state = np.array([gripper_open, *gripper_joint_positions, timestep]).reshape(1, -1)
+        input_dict.update({
+            'lang_goal_embs': lang_goal_embs,
+            'low_dim_state': low_dim_state
+        })
+
+        for k, v in input_dict.items():
+            if not isinstance(v, torch.Tensor):
+                v = torch.from_numpy(v)
+            input_dict[k] = v.to(device)
+        
+        output_dict = agent.predict(input_dict)
+        trans = output_dict['pred_action']['continuous_trans'].detach().cpu().numpy() * 100 + robot_pos
+        rotation = output_dict['pred_action']['continuous_quat']
+    
+    else:
+        raise ValueError(f'{agent_type} agent not supported')
 
     print(f'action prediction: trans={trans}, orient(euler XYZ)={R.from_quat(rotation).as_euler("XYZ", degrees=True)}')
 
@@ -222,20 +257,27 @@ def main(args):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     render = args.visualize
     use_gpu_physics = True if 'water' in args.task else False
+
+    simulation_app, simulation_context, _ = get_simulation(headless=False, gpu_id=0)
+
+    from parameters.parameters import StageProperties
+    from SceneLoader import SceneLoader
+    from omni.isaac.franka.controllers import RMPFlowController
+
+    light_usd_path = '/home/huangjiangyong/repo/VRKitchen2.0/sample/light/skylight.usd'
+    scene_properties = StageProperties(light_usd_path, "y", 0.01, gravity_direction=[0,-1,0], gravity_magnitude=981)
+
+    agent = load_agent(args, device=device)
+    if args.agent == 'peract':
+        lang_encoder = create_lang_encoder(encoder_key=args.lang_encoder, device=device)
+        lang_embed_cache = InstructionEmbedding(lang_encoder)
+    else:
+        lang_embed_cache = None
+
     eval_log = []
     for eval_split in EVAL_SPLITS:
         eval_log.append(f'Evaluating {eval_split}\n')
         data = load_data(data_path=os.path.join(args.data_dir, eval_split))
-        simulation_app, simulation_context, _ = get_simulation(headless=False, gpu_id=0)
-
-        from parameters.parameters import StageProperties
-        from SceneLoader import SceneLoader
-        from omni.isaac.franka.controllers import RMPFlowController
-
-        light_usd_path = '/home/huangjiangyong/repo/VRKitchen2.0/sample/light/skylight.usd'
-        scene_properties = StageProperties(light_usd_path, "y", 0.01, gravity_direction=[0,-1,0], gravity_magnitude=981)
-
-        agent = load_agent(ckpt_path=args.checkpoint_path, device=device)
 
         scene_loader: SceneLoader = None
         correct = 0
@@ -294,8 +336,13 @@ def main(args):
                         if use_gt[0]:
                             trans_pre, rotation_pre = gt_actions[0]
                         else:
-                            trans_pick, rotation_pick = get_action(scene_loader, simulation_context, agent, franka, c_controller, anno, offset, type=args.obs_type)
-                            trans_pre, rotation_pre = get_pre_grasp_action(grasp_action=(trans_pick, rotation_pick), robot_base=gt_frames[1]['robot_base'], task=args.task)
+                            trans_pick, rotation_pick = get_action(
+                                scene_loader, simulation_context, agent, franka, c_controller, anno, offset, timestep=0,
+                                device=device, agent_type=args.agent, obs_type=args.obs_type, lang_embed_cache=lang_embed_cache
+                            )
+                            trans_pre, rotation_pre = get_pre_grasp_action(
+                                grasp_action=(trans_pick, rotation_pick), robot_base=gt_frames[1]['robot_base'], task=args.task
+                            )
                         current_target = (trans_pre, rotation_pre, grip_open)
                     elif stage == 1:
                         if use_gt[0]:
@@ -307,7 +354,10 @@ def main(args):
                             if use_gt[1]:
                                 trans_target, rotation_target = gt_actions[2]
                             else:
-                                trans_target, rotation_target = get_action(scene_loader, simulation_context, agent, franka, c_controller, anno, offset, type=args.obs_type)
+                                trans_target, rotation_target = get_action(
+                                    scene_loader, simulation_context, agent, franka, c_controller, anno, offset, timestep=1,
+                                    device=device, agent_type=args.agent, obs_type=args.obs_type, lang_embed_cache=lang_embed_cache
+                                )
                         
                         if NEED_INTERPOLATION[args.task]:
                             trans_previous = trans_pick
@@ -379,15 +429,16 @@ def main(args):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='')
+    parser = argparse.ArgumentParser()
 
     parser.add_argument('--data_dir', type=str)
     parser.add_argument('--task', type=str)
+    parser.add_argument('--agent', type=str)
+    parser.add_argument('--lang_encoder', type=str)
     parser.add_argument('--obs_type', type=str)
     parser.add_argument('--use_gt', type=int, nargs='+')
     parser.add_argument('--visualize', type=int)
-    parser.add_argument('--checkpoint_path', type=str, metavar='PATH',
-                        help='path to latest checkpoint (default: none)')
+    parser.add_argument('--checkpoint_path', type=str, metavar='PATH')
     args = parser.parse_args()
 
     main(args)

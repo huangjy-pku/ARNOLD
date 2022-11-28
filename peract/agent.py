@@ -20,6 +20,7 @@ INCLUDE_PER_VOXEL_COORD = False
 
 class T5_encoder(nn.Module):
     def __init__(self, cfg_path, device):
+        super().__init__()
         self.device = device
         self.tokenizer = T5Tokenizer.from_pretrained(cfg_path)
         self.encoder = T5EncoderModel.from_pretrained(cfg_path).to(device)
@@ -83,6 +84,7 @@ class PerceiverIO(nn.Module):
             voxel_patch_size=5,       # intial patch size
             voxel_patch_stride=5,     # initial stride to patchify voxel input
             final_dim=64,             # final dimensions of features
+            lang_embed_dim=512        # language embedding dim, 512 for CLIP, 768 for T5
     ):
         super().__init__()
         self.depth = depth
@@ -110,7 +112,7 @@ class PerceiverIO(nn.Module):
         self.input_dim_before_seq = self.im_channels * 2
 
         # learnable positional encoding
-        lang_emb_dim, lang_max_seq_len = 512, 77  
+        lang_emb_dim, lang_max_seq_len = lang_embed_dim, 77  
         self.pos_encoding = nn.Parameter(torch.randn(1,
                                                      lang_max_seq_len+spatial_size**3,
                                                      self.input_dim_before_seq))
@@ -261,7 +263,7 @@ class PerceiverIO(nn.Module):
         ins = rearrange(ins, 'b ... d -> b (...) d')  # [B,8000,128]
 
         # append language features as sequence
-        l = self.lang_preprocess(lang_goal_embs)      # [B,77,1024] -> [B,77,128]
+        l = self.lang_preprocess(lang_goal_embs)      # [B,77,l_emb_dim] -> [B,77,128]
         ins = torch.cat((l, ins), dim=1)              # [B,8077,128]
 
         # add learable pos encoding
@@ -628,8 +630,6 @@ class PerceiverActorAgent():
         checkpoint = torch.load(path)
         if 'model_state_dict' in checkpoint:
             self._q.load_state_dict(checkpoint['model_state_dict'])
-            
-
             self._optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         else:
             self._q.load_state_dict(checkpoint)
@@ -728,21 +728,14 @@ class PerceiverActorAgent():
                action_grip_one_hot,  \
                action_collision_one_hot
 
+    @torch.no_grad()
     def predict(self, replay_sample: dict) -> dict:
-        # sample
-        
         lang_goal_embs = replay_sample['lang_goal_embs'].float()
+        proprio = replay_sample['low_dim_state'].float()
         
         # metric scene bounds
         bounds = bounds_tp1 = self._coordinate_bounds
 
-        # inputs
-        # print(replay_sample['low_dim_state'])
-        # print(replay_sample['low_dim_state'].shape)
-        # exit()
-        
-        proprio = replay_sample['low_dim_state'].float()
-       
         obs, pcd = preprocess_inputs(replay_sample)
 
         # TODO: data augmentation by applying SE(3) pertubations to obs and actions
@@ -761,18 +754,10 @@ class PerceiverActorAgent():
         # discrete to continuous translation action
         res = (bounds[:, 3:] - bounds[:, :3]) / self._voxel_size
         continuous_trans = bounds[:, :3] + res * coords_indices.int() + res / 2
+        continuous_trans = continuous_trans[0]
         continuous_quat = discrete_euler_to_quaternion(rot_and_grip_indices[0][:3].detach().cpu().numpy(),
                                                 resolution=self._rotation_resolution)
 
-        # euler = (rot_and_grip_indices[0][:3].detach().cpu().numpy() * self._rotation_resolution) - 180
-        # print("euler: ", euler)
-        #xyzw to wxyz
-        continuous_quat = continuous_quat[[3,0,1,2]] 
-        # from scipy.spatial.transform import Rotation as R
-        # r = R.from_quat(continuous_quat)
-        # angle = r.as_euler('XYZ', degrees=True)
-        # print('angle: ', angle)
-        # exit()
         return {
             'voxel_grid': voxel_grid,
             'q_trans': self._softmax_q(q_trans),
@@ -783,7 +768,6 @@ class PerceiverActorAgent():
                 'rot_and_grip': rot_and_grip_indices,
                 'collision': ignore_collision_indices
             },
-           
         }
 
     def update(self, step: int, replay_sample: dict, backprop: bool = True) -> dict:
