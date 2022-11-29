@@ -10,7 +10,6 @@ import time
 import torch
 import argparse
 import numpy as np
-from tqdm import trange
 from torch.utils.tensorboard import SummaryWriter
 from dataset import ArnoldDataset, InstructionEmbedding
 from peract.agent import CLIP_encoder, T5_encoder, PerceiverIO, PerceiverActorAgent
@@ -86,7 +85,7 @@ def main(args):
 
     train_dataset = ArnoldDataset(data_path=os.path.join(args.data_dir, 'train'), task=args.task, obs_type=args.obs_type)
     
-    writer = SummaryWriter(log_dir=args.checkpoint_path)
+    writer = SummaryWriter(log_dir=os.path.join(args.checkpoint_path, f'{args.obs_type}_{args.lang_encoder}'))
 
     agent = create_agent(args, train=True, device=device)
 
@@ -104,7 +103,7 @@ def main(args):
 
     print(f'Training {args.steps} steps with batch_size = {args.batch_size}')
     start_time = time.time()
-    for iteration in trange(start_step, args.steps):
+    for iteration in range(start_step, args.steps):
         batch_data = train_dataset.sample(args.batch_size)
 
         obs_dict = {}
@@ -163,7 +162,7 @@ def main(args):
 
         if iteration % args.log_freq == 0:
             elapsed_time = (time.time() - start_time) / 60.0
-            print(f'Total Loss: {running_loss} | Elapsed Time: {elapsed_time} mins')
+            print(f'Iteration: {iteration} | Total Loss: {running_loss} | Elapsed Time: {elapsed_time} mins')
             writer.add_scalar('total_loss', running_loss, iteration)
         
         if iteration % args.save_freq == 0:

@@ -101,7 +101,7 @@ def main(args):
         pin_memory=True, drop_last=False, collate_fn=collate_fn, persistent_workers=True
     )
     
-    writer = SummaryWriter(log_dir=args.checkpoint_path)
+    writer = SummaryWriter(log_dir=os.path.join(args.checkpoint_path, f'{args.obs_type}'))
 
     losses = {}
     timer = {
