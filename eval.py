@@ -438,6 +438,7 @@ if __name__ == '__main__':
     parser.add_argument('--obs_type', type=str)
     parser.add_argument('--use_gt', type=int, nargs='+')
     parser.add_argument('--visualize', type=int)
+    parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--checkpoint_path', type=str, metavar='PATH')
     args = parser.parse_args()
 
