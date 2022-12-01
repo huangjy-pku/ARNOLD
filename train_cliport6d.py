@@ -92,13 +92,13 @@ def main(args):
     val_dataset = ArnoldDataset(data_path=os.path.join(args.data_dir, 'val'), task=args.task, obs_type=args.obs_type)
 
     train_loader = DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.batch_size//4,
-        pin_memory=True, drop_last=False, collate_fn=collate_fn, persistent_workers=True
+        train_dataset, batch_size=args.batch_size, shuffle=True,
+        num_workers=args.batch_size//4, pin_memory=True, collate_fn=collate_fn
     )
 
     val_loader = DataLoader(
-        val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.batch_size//4,
-        pin_memory=True, drop_last=False, collate_fn=collate_fn, persistent_workers=True
+        val_dataset, batch_size=args.batch_size, shuffle=False,
+        num_workers=args.batch_size//4, pin_memory=True, collate_fn=collate_fn,
     )
     
     writer = SummaryWriter(log_dir=os.path.join(args.checkpoint_path, f'{args.obs_type}'))

@@ -157,8 +157,6 @@ def create_pcd_hardcode(camera, depth, cm_to_m=True):
     t = T[:3, 3]
     points_world = points_cam @ np.transpose(Rotation) + t
     points_world = np.array(points_world).reshape(height, width,3)
-    # swap y and z to make z upward
-    points_world[:,:,[1,2]] = points_world[:,:,[2,1]]
     
     return points_world / 100 if cm_to_m else points_world
 
@@ -167,7 +165,6 @@ def get_scene_bounds(robot_base, offset):
     # m, offset shape: [3, 2]
     robot_base = robot_base.reshape(3, 1)
     bounds = robot_base + offset
-    bounds[[1,2]] = bounds[[2,1]]
     return bounds
 
 
@@ -296,7 +293,7 @@ def get_obs(franka, cspace_controller, gt, type='rgb'):
         point_cloud = create_pcd_hardcode(camera, depth, cm_to_m=True)
         obs[CAMERAS[camera_idx]+'_rgb'] = rgb
         obs[CAMERAS[camera_idx]+'_depth'] = depth
-        obs[CAMERAS[camera_idx]+'_point_cloud'] = point_cloud
+        obs[CAMERAS[camera_idx]+'_point_cloud'] = point_cloud - robot_base_pos / 100
     
     gripper_open = gripper_joint_positions[0] > 3.9 and gripper_joint_positions[1] > 3.9
 

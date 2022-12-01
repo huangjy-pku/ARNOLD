@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 from scipy.spatial.transform import Rotation as R
 from cliport6d.utils.utils import get_fused_heightmap
 from peract.utils import CAMERAS
-from custom_utils.misc import get_pose_world, create_pcd_hardcode, get_scene_bounds, TASK_OFFSETS
+from custom_utils.misc import get_pose_world, create_pcd_hardcode, TASK_OFFSETS
 
 pickle.DEFAULT_PROTOCOL=pickle.HIGHEST_PROTOCOL
 RANDOM_SEED=1125
@@ -71,9 +71,8 @@ class ArnoldDataset(Dataset):
                 # pick phase
                 step = gt_frames[0].copy()
                 robot_base_pos = step['robot_base'][0] / 100
-                scene_bounds = get_scene_bounds(robot_base_pos, offset=self.task_offset)
 
-                cmap, hmap, obs_dict = self.get_step_obs(step, scene_bounds, self.pixel_size, type=self.obs_type)
+                cmap, hmap, obs_dict = self.get_step_obs(step, self.task_offset[[0, 2, 1]], self.pixel_size, type=self.obs_type)
                 hmap = np.tile(hmap[..., None], (1,1,3))
                 img = np.concatenate([cmap, hmap], axis=-1)
 
@@ -87,8 +86,8 @@ class ArnoldDataset(Dataset):
                 target_points = self.get_act_label_from_abs(pos_abs=act_pos, rot_abs=act_rot)
                 target_points[:3] = target_points[:3] - robot_base_pos
 
-                gripper_open = 0
-                gripper_joint_positions = gt_frames[2]['gripper_joint_positions'] / 100
+                gripper_open = 1
+                gripper_joint_positions = step['gripper_joint_positions'] / 100
                 gripper_joint_positions = np.clip(gripper_joint_positions, 0, 0.04)
                 timestep = 0
                 low_dim_state = np.array([gripper_open, *gripper_joint_positions, timestep])
@@ -110,9 +109,8 @@ class ArnoldDataset(Dataset):
                 # place phase
                 step = gt_frames[2].copy()
                 robot_base_pos = step['robot_base'][0] / 100
-                scene_bounds = get_scene_bounds(robot_base_pos, offset=self.task_offset)
 
-                cmap, hmap, obs_dict = self.get_step_obs(step, scene_bounds, self.pixel_size, type=self.obs_type)
+                cmap, hmap, obs_dict = self.get_step_obs(step, self.task_offset[[0, 2, 1]], self.pixel_size, type=self.obs_type)
                 hmap = np.tile(hmap[..., None], (1,1,3))
                 img = np.concatenate([cmap, hmap], axis=-1)
 
@@ -132,7 +130,7 @@ class ArnoldDataset(Dataset):
                 target_points[:3] = target_points[:3] - robot_base_pos
 
                 gripper_open = 0
-                gripper_joint_positions = gt_frames[3]['gripper_joint_positions'] / 100
+                gripper_joint_positions = step['gripper_joint_positions'] / 100
                 gripper_joint_positions = np.clip(gripper_joint_positions, 0, 0.04)
                 timestep = 1
                 low_dim_state = np.array([gripper_open, *gripper_joint_positions, timestep])
@@ -179,6 +177,7 @@ class ArnoldDataset(Dataset):
         return samples
 
     def get_step_obs(self, step, bounds, pixel_size, type='rgb'):
+        # bounds: [3, 2], xyz (z-up)
         imgs = step['images']
         colors = []
         pcds = []
@@ -197,13 +196,17 @@ class ArnoldDataset(Dataset):
             depth = camera_obs['depthLinear']
 
             point_cloud = create_pcd_hardcode(camera, depth, cm_to_m=True)
-            pcds.append(point_cloud)
+            # here point_cloud is y-up
+            point_cloud = point_cloud - step['robot_base'][0] / 100
+
+            pcds.append(point_cloud[:, :, [0, 2, 1]])   # pcds is for cliport6d, which requires z-up
 
             obs_dict.update({
                 f'{camera_name}_rgb': color,
                 f'{camera_name}_point_cloud': point_cloud
-            })
+            })   # obs_dict is for peract, which requires y-up
         
+        # to fuse map, pcds and bounds are supposed to be xyz (z-up)
         cmap, hmap = get_fused_heightmap(colors, pcds, bounds, pixel_size)
         return cmap, hmap, obs_dict
     

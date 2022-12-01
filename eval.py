@@ -117,7 +117,14 @@ def get_action(scene_loader, simulation_context, agent, franka, c_controller, np
 
     if agent_type == 'cliport6d':
         bounds = offset / 100
-        bounds = bounds[[0, 2, 1]]   # y-up to z-up
+
+        # y-up to z-up
+        bounds = bounds[[0, 2, 1]]
+        obs.front_point_cloud = obs.front_point_cloud[:, :, [0, 2, 1]]
+        obs.left_point_cloud = obs.left_point_cloud[:, :, [0, 2, 1]]
+        obs.base_point_cloud = obs.base_point_cloud[:, :, [0, 2, 1]]
+        obs.wrist_point_cloud = obs.wrist_point_cloud[:, :, [0, 2, 1]]
+        obs.wrist_bottom_point_cloud = obs.wrist_bottom_point_cloud[:, :, [0, 2, 1]]
 
         inp_img, lang_goal, p0, output_dict = agent.act(obs, [instruction], bounds=bounds, pixel_size=5.625e-3)
         

@@ -132,7 +132,7 @@ def main(args):
         gripper_open = np.array(gripper_open).reshape(bs, 1)
         low_dim_state = np.stack(low_dim_state, axis=0)
 
-        trans_action_coords = target_points[:, [0, 2, 1]]
+        trans_action_coords = target_points[:, :3]
         trans_action_indices = point_to_voxel_index(trans_action_coords, VOXEL_SIZES[0], TASK_OFFSET_BOUNDS[args.task])
 
         rot_action_quat = target_points[:, 3:]
