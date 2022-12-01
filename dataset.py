@@ -193,7 +193,7 @@ class ArnoldDataset(Dataset):
                 raise ValueError('observation type should be either rgb or mask')
             colors.append(color)
 
-            depth = camera_obs['depthLinear']
+            depth = np.clip(camera_obs['depthLinear'], 0, 10)
 
             point_cloud = create_pcd_hardcode(camera, depth, cm_to_m=True)
             # here point_cloud is y-up

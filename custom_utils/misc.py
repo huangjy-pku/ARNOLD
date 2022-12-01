@@ -288,7 +288,7 @@ def get_obs(franka, cspace_controller, gt, type='rgb'):
         else:
             raise ValueError('observation type should be either rgb or mask')
         
-        depth = gt['images'][camera_idx]['depthLinear']
+        depth = np.clip(gt['images'][camera_idx]['depthLinear'], 0, 10)
         camera = gt['images'][camera_idx]['camera']
         point_cloud = create_pcd_hardcode(camera, depth, cm_to_m=True)
         obs[CAMERAS[camera_idx]+'_rgb'] = rgb
