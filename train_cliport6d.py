@@ -4,23 +4,24 @@ For example, run:
                               --batch_size 4 --steps 20000 --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt_cliport6d > train.log
 """
 
-import datetime
 import os
 import time
-import numpy as np
-import torch
-import torch.backends.cudnn as cudnn
+import datetime
 import argparse
 import warnings
+warnings.filterwarnings('ignore')
+
+import torch
+import numpy as np
 from math import ceil
+from torch.backends import cudnn
 from torch.utils.data import DataLoader
-from scipy.spatial.transform import Rotation as R
 from torch.utils.tensorboard import SummaryWriter
+from scipy.spatial.transform import Rotation as R
 
 from dataset import ArnoldDataset
 from custom_utils.misc import collate_fn
 from cliport6d.agent import TwoStreamClipLingUNetLatTransporterAgent
-warnings.filterwarnings('ignore')
 
 
 class AverageMeter(object):
@@ -91,11 +92,7 @@ def main(args):
     train_dataset = ArnoldDataset(data_path=os.path.join(args.data_dir, 'train'), task=args.task, obs_type=args.obs_type)
     val_dataset = ArnoldDataset(data_path=os.path.join(args.data_dir, 'val'), task=args.task, obs_type=args.obs_type)
 
-    train_loader = DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=True,
-        num_workers=args.batch_size//4, pin_memory=True, collate_fn=collate_fn
-    )
-
+    # train set used for iterative sampling, val set for enumeration
     val_loader = DataLoader(
         val_dataset, batch_size=args.batch_size, shuffle=False,
         num_workers=args.batch_size//4, pin_memory=True, collate_fn=collate_fn,
@@ -115,33 +112,33 @@ def main(args):
     print(f'Training epochs: {args.steps} steps / ({len(train_dataset)} demos / {args.batch_size} batch_size) = {args.epochs}')
     for epoch in range(start_epoch, args.epochs):
         # train for one epoch
-        train(train_loader, model, optimizer, scheduler, epoch, losses, args, timer, writer)
+        train(train_dataset, model, optimizer, scheduler, epoch, losses, args, timer, writer)
         
         val_loss = val(val_loader, model, args, epoch)
 
         writer.add_scalar('val_loss', val_loss, epoch)
 
-        save_name = args.checkpoint_path + '/conv_checkpoint_{}_{}'.format(args.task, args.obs_type)
-
-        if val_loss <= best_val_loss:
+        if val_loss < best_val_loss:
             best_val_loss = val_loss
-            save_name_best = save_name + '_best.pth'
+            save_name = args.checkpoint_path + '/conv_checkpoint_{}_{}_{}_best.pth'.format(args.task, args.obs_type, timer['batch_time'].count)
             torch.save({
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
                 'optimizer' : optimizer.state_dict(),
                 'train_tasks': args.task
-            }, save_name_best)
+            }, save_name)
     
     writer.close()
 
 
-def train(data_loader, model, optimizer, scheduler, epoch, losses, args, timer, writer):
+def train(dataset, model, optimizer, scheduler, epoch, losses, args, timer, writer):
     batch_time = timer["batch_time"]
     data_time = timer["data_time"]
     model.train()
     end = time.time()
-    for batch_step, batch_data in enumerate(data_loader):
+    steps_per_epoch = len(dataset) // args.batch_size + 1
+    for batch_step in range(steps_per_epoch):
+        batch_data = dataset.sample(args.batch_size)
         data_time.update(time.time() - end)
         loss_dict = {}
         if len(batch_data)==0:
@@ -199,9 +196,9 @@ def train(data_loader, model, optimizer, scheduler, epoch, losses, args, timer, 
         batch_time.update(time.time() - end)
         end = time.time()
         # Calculate time remaining.
-        time_per_epoch = batch_time.avg * len(data_loader)
+        time_per_epoch = batch_time.avg * len(dataset)
         epochs_left = args.epochs - epoch - 1
-        batches_left = len(data_loader) - batch_step - 1
+        batches_left = len(dataset) - batch_step - 1
 
         time_left = sec_to_str(batches_left * batch_time.avg + epochs_left * time_per_epoch)
         time_elapsed = sec_to_str(batch_time.sum)
@@ -213,7 +210,7 @@ def train(data_loader, model, optimizer, scheduler, epoch, losses, args, timer, 
                         'Elapsed: {}  ' \
                         'ETA: {} / {}  ' \
                         'Data {data_time.val:.3f} ({data_time.avg:.3f})\n'.format(
-                epoch + 1, args.epochs, batch_step, len(data_loader), time_elapsed, time_left, time_estimate,
+                epoch + 1, args.epochs, batch_step, len(dataset), time_elapsed, time_left, time_estimate,
                 batch_time=batch_time, data_time=data_time)
             
             tmp_str += f'total_loss: {loss.item():.4f}  '

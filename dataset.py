@@ -33,6 +33,7 @@ class ArnoldDataset(Dataset):
         self.obs_type = obs_type
         self.task_offset = TASK_OFFSETS[task] / 100
         self.sample_weights = [0.2, 0.8]
+        self.obj_ids = []
         self.episode_dict = {}
         self.lang_embed_cache = {}
         self._load_keyframes()
@@ -58,6 +59,7 @@ class ArnoldDataset(Dataset):
             if fname.endswith('npz'):
                 obj_id = fname.split('-')[2]
                 if obj_id not in self.episode_dict:
+                    self.obj_ids.append(obj_id)
                     self.episode_dict.update({
                         obj_id: {
                             'act1': [],
@@ -158,15 +160,27 @@ class ArnoldDataset(Dataset):
         return num_demos
     
     def __getitem__(self, index):
-        obj_idx = random.choice(list(self.episode_dict.keys()))
+        obj_demos = [len(v['act1']) for k, v in self.episode_dict.items()]
+        interval_upper = np.cumsum(obj_demos)
+        interval_lower = np.array([0, *interval_upper[:-1]])
+
+        obj_idx = ((index>=interval_lower) * (index<interval_upper)).tolist().index(True)
+        demo_idx = index - interval_lower[obj_idx]
+        obj_idx = self.obj_ids[obj_idx]
+
         act_idx = 1 + np.random.choice(2, size=1, p=self.sample_weights)[0]
-        return random.choice(self.episode_dict[obj_idx][f'act{act_idx}'])
+        return self.episode_dict[obj_idx][f'act{act_idx}'][demo_idx]
+
+        # sample
+        # obj_idx = random.choice(list(self.episode_dict.keys()))
+        # act_idx = 1 + np.random.choice(2, size=1, p=self.sample_weights)[0]
+        # return random.choice(self.episode_dict[obj_idx][f'act{act_idx}'])
     
     def sample(self, batch_size):
         samples = []
         sampled_idx = []
         while len(samples) < batch_size:
-            obj_idx = random.choice(list(self.episode_dict.keys()))
+            obj_idx = random.choice(self.obj_ids)
             act_idx = 1 + np.random.choice(2, size=1, p=self.sample_weights)[0]
             demo_idx = np.random.randint(len(self.episode_dict[obj_idx][f'act{act_idx}']), size=1)[0]
             obj_act_demo_tuple = (obj_idx, act_idx, demo_idx)
