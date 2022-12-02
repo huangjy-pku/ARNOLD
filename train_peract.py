@@ -194,7 +194,7 @@ def main(args):
             writer.add_scalar('val_loss', val_loss, iteration)
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                path = os.path.join(args.checkpoint_path, f'model_{args.task}_{args.obs_type}_{args.lang_encoder}_{iteration}.pth')
+                path = os.path.join(args.checkpoint_path, f'peract_{args.task}_{args.obs_type}_{args.lang_encoder}_best.pth')
                 agent.save_model(path, iteration)
     
     writer.close()

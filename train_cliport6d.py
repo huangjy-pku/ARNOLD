@@ -120,7 +120,7 @@ def main(args):
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            save_name = args.checkpoint_path + '/conv_checkpoint_{}_{}_{}_best.pth'.format(args.task, args.obs_type, timer['batch_time'].count)
+            save_name = os.path.join(args.checkpoint_path, f'cliport6d_{args.task}_{args.obs_type}_best.pth')
             torch.save({
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
