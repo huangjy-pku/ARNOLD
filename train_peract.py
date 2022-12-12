@@ -1,7 +1,7 @@
 """
 For example, run:
     python train_peract.py --data_dir /mnt/huangjiangyong/VRKitchen/pickup_object --task pickup_object \
-                           --obs_type rgb --lang_encoder clip --batch_size 4 --steps 20000 \
+                           --obs_type rgb --lang_encoder clip --batch_size 4 --steps 20001 \
                            --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt_peract > train.log
 """
 
@@ -146,7 +146,7 @@ def main(args):
     # train set used for iterative sampling, val set for enumeration
     val_loader = DataLoader(
         val_dataset, batch_size=args.batch_size, shuffle=False,
-        num_workers=args.batch_size//4, pin_memory=True, collate_fn=collate_fn,
+        num_workers=args.batch_size//4, pin_memory=True, drop_last=True, collate_fn=collate_fn,
     )
     
     writer = SummaryWriter(log_dir=os.path.join(args.checkpoint_path, f'{args.obs_type}_{args.lang_encoder}'))
@@ -195,6 +195,7 @@ def main(args):
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 path = os.path.join(args.checkpoint_path, f'peract_{args.task}_{args.obs_type}_{args.lang_encoder}_best.pth')
+                print('Saving checkpoint')
                 agent.save_model(path, iteration)
     
     writer.close()
@@ -209,7 +210,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=16, metavar='N')
     parser.add_argument('--steps', type=int, help='Set optimization steps for training')
     parser.add_argument('--log-freq', default=50, type=int)
-    parser.add_argument('--save-freq', default=5000, type=int)
+    parser.add_argument('--save-freq', default=4000, type=int)
     parser.add_argument('--checkpoint_path', type=str, metavar='PATH')
     parser.add_argument('--resume', default=None, type=str, help='resume training from checkpoint file')
     parser.add_argument('--lang_encoder', type=str)

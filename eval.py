@@ -1,7 +1,7 @@
 """
 For example, run:
     python eval.py --data_dir /mnt/huangjiangyong/VRKitchen/pickup_object --task pickup_object --agent peract --lang_encoder clip --obs_type rgb \
-                   --use_gt 0 0 --visualize 1 --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt/conv_checkpoint_cliport_6dof_pickup_object_best.pth
+                   --use_gt 0 0 --visualize 0 --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt_peract/peract_pickup_object_rgb_clip_best.pth.pth
 """
 
 import os

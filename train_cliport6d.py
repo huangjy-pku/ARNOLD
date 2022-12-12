@@ -1,7 +1,7 @@
 """
 For example, run:
     python train_cliport6d.py --data_dir /mnt/huangjiangyong/VRKitchen/pickup_object --task pickup_object --obs_type rgb \
-                              --batch_size 4 --steps 20000 --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt_cliport6d > train.log
+                              --batch_size 4 --steps 20001 --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt_cliport6d > train.log
 """
 
 import os
@@ -121,6 +121,7 @@ def main(args):
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             save_name = os.path.join(args.checkpoint_path, f'cliport6d_{args.task}_{args.obs_type}_best.pth')
+            print('Saving checkpoint')
             torch.save({
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
