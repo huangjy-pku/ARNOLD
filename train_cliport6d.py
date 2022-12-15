@@ -1,7 +1,7 @@
 """
 For example, run:
     python train_cliport6d.py --data_dir /mnt/huangjiangyong/VRKitchen/pickup_object --task pickup_object --obs_type rgb \
-                              --batch_size 4 --steps 20001 --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt_cliport6d > train.log
+                              --batch_size 4 --steps 100001 --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt_cliport6d > train.log
 """
 
 import os

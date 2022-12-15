@@ -1,7 +1,7 @@
 """
 For example, run:
     python train_peract.py --data_dir /mnt/huangjiangyong/VRKitchen/pickup_object --task pickup_object \
-                           --obs_type rgb --lang_encoder clip --batch_size 4 --steps 20001 \
+                           --obs_type rgb --lang_encoder clip --batch_size 4 --steps 100001 \
                            --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt_peract > train.log
 """
 
@@ -59,7 +59,7 @@ def create_agent(args, train, device):
     )
 
     peract_agent = PerceiverActorAgent(
-        coordinate_bounds=TASK_OFFSET_BOUNDS[args.task],
+        coordinate_bounds=TASK_OFFSET_BOUNDS[args.task] if isinstance(TASK_OFFSET_BOUNDS, dict) else TASK_OFFSET_BOUNDS,
         perceiver_encoder=perceiver_encoder,
         camera_names=CAMERAS,
         batch_size=args.batch_size,
@@ -107,7 +107,7 @@ def prepare_batch(batch_data, args, lang_embed_cache, device):
     low_dim_state = np.stack(low_dim_state, axis=0)
 
     trans_action_coords = target_points[:, :3]
-    trans_action_indices = point_to_voxel_index(trans_action_coords, VOXEL_SIZES[0], TASK_OFFSET_BOUNDS[args.task])
+    trans_action_indices = point_to_voxel_index(trans_action_coords, VOXEL_SIZES[0], TASK_OFFSET_BOUNDS[args.task] if isinstance(TASK_OFFSET_BOUNDS, dict) else TASK_OFFSET_BOUNDS)
 
     rot_action_quat = target_points[:, 3:]
     rot_action_quat = normalize_quaternion(rot_action_quat)
@@ -210,7 +210,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=16, metavar='N')
     parser.add_argument('--steps', type=int, help='Set optimization steps for training')
     parser.add_argument('--log-freq', default=50, type=int)
-    parser.add_argument('--save-freq', default=4000, type=int)
+    parser.add_argument('--save-freq', default=5000, type=int)
     parser.add_argument('--checkpoint_path', type=str, metavar='PATH')
     parser.add_argument('--resume', default=None, type=str, help='resume training from checkpoint file')
     parser.add_argument('--lang_encoder', type=str)

@@ -111,7 +111,7 @@ def get_action(scene_loader, simulation_context, agent, franka, c_controller, np
     gt = scene_loader.render(simulation_context)
 
     obs = get_obs(franka, c_controller, gt, type=obs_type)
-    robot_pos, robot_rot = obs.misc['robot_base']
+    bound_center = obs.bound_center
 
     instruction = npz_file['gt'][0]['instruction']
 
@@ -132,7 +132,7 @@ def get_action(scene_loader, simulation_context, agent, franka, c_controller, np
         # m to cm
         trans[[0,2]] *= output_dict['place_xy']
         trans[1] *= output_dict['place_z']
-        trans += robot_pos
+        trans += bound_center
 
         rotation = np.array([output_dict['place_theta'], output_dict['pitch'], output_dict['roll']])
         rotation = R.from_euler('zyx', rotation, degrees=False).as_matrix()
@@ -165,7 +165,7 @@ def get_action(scene_loader, simulation_context, agent, franka, c_controller, np
             input_dict[k] = v.to(device)
         
         output_dict = agent.predict(input_dict)
-        trans = output_dict['pred_action']['continuous_trans'].detach().cpu().numpy() * 100 + robot_pos
+        trans = output_dict['pred_action']['continuous_trans'].detach().cpu().numpy() * 100 + bound_center
         rotation = output_dict['pred_action']['continuous_quat']
     
     else:
@@ -311,7 +311,7 @@ def main(args):
                 act_rot = R.from_quat(act_rot[[1,2,3,0]]).as_euler('XYZ', degrees=True)
                 print(f'trans={act_pos}, orient(euler XYZ)={act_rot}, gripper_open={grip_open}')
             
-            offset = TASK_OFFSETS[args.task]
+            offset = TASK_OFFSETS[args.task] if isinstance(TASK_OFFSETS, dict) else TASK_OFFSETS
 
             use_gt = args.use_gt
 

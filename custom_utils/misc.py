@@ -4,29 +4,32 @@ from .compute_points import compute_points
 
 
 # -------------------------- constants for cliport6d --------------------------
-TASK_OFFSETS = {
-    'pickup_object': np.array([[-108, 108], [0, 90], [-108, 108]], dtype=float),
-    'reorient_object': np.array([[-90, 90], [0, 90], [-90, 90]], dtype=float),
-    'open_drawer': np.array([[-108, 108], [0, 130], [-108, 108]], dtype=float),
-    'close_drawer': np.array([[-108, 108], [0, 130], [-108, 108]], dtype=float),
-}   # cm
+# TASK_OFFSETS = {
+#     'pickup_object': np.array([[-108, 108], [0, 90], [-108, 108]], dtype=float),
+#     'reorient_object': np.array([[-90, 90], [0, 90], [-90, 90]], dtype=float),
+#     'open_drawer': np.array([[-108, 108], [0, 130], [-108, 108]], dtype=float),
+#     'close_drawer': np.array([[-108, 108], [0, 130], [-108, 108]], dtype=float),
+# }   # cm
+TASK_OFFSETS = np.array([[-63, 63], [0, 126], [-63, 63]], dtype=float)
 
-TASK_RESOLUTIONS = {
-    'pickup_object': 384,
-    'reorient_object': 320,
-    'open_drawer': 384,
-    'close_drawer': 384,
-}
+# TASK_RESOLUTIONS = {
+#     'pickup_object': 384,
+#     'reorient_object': 320,
+#     'open_drawer': 384,
+#     'close_drawer': 384,
+# }
+TASK_RESOLUTIONS = 224
 # -------------------------- constants for cliport6d --------------------------
 
 
 # -------------------------- constants for peract --------------------------
-TASK_OFFSET_BOUNDS = {
-    'pickup_object': [-1.08, 0, -1.08, 1.08, 2.16, 1.08],
-    'reorient_object': [-0.9, 0, -0.9, 0.9, 1.8, 0.9],
-    'open_drawer': [-1.08, 0, -1.08, 1.08, 2.16, 1.08],
-    'close_drawer': [-1.08, 0, -1.08, 1.08, 2.16, 1.08],
-}   # m, for peract
+# TASK_OFFSET_BOUNDS = {
+#     'pickup_object': [-1.08, 0, -1.08, 1.08, 2.16, 1.08],
+#     'reorient_object': [-0.9, 0, -0.9, 0.9, 1.8, 0.9],
+#     'open_drawer': [-1.08, 0, -1.08, 1.08, 2.16, 1.08],
+#     'close_drawer': [-1.08, 0, -1.08, 1.08, 2.16, 1.08],
+# }   # m, for peract training
+TASK_OFFSET_BOUNDS = [-0.63, 0, -0.63, 0.63, 1.26, 0.63]
 
 IMAGE_SIZE = 128
 VOXEL_SIZES = [120]
@@ -208,7 +211,8 @@ class Observation(object):
                 #  gripper_touch_forces: np.ndarray,
                 #  task_low_dim_state: np.ndarray,
                 #  ignore_collisions: np.ndarray,
-                 misc: dict
+                #  misc: dict
+                bound_center: np.ndarray
                  ):
         self.left_rgb = left_rgb
         self.left_depth = left_depth
@@ -249,7 +253,8 @@ class Observation(object):
         # self.task_low_dim_state = task_low_dim_state
         self.ignore_collisions = np.array(0)
         
-        self.misc = misc
+        # self.misc = misc
+        self.bound_center = bound_center
 
 
 CAMERAS = ['front', 'left', 'base', 'wrist', 'wrist_bottom']
@@ -264,13 +269,13 @@ def get_obs(franka, cspace_controller, gt, type='rgb'):
         return (ee_pos, ee_rot)
 
     obs = {}
-    misc = {}
 
     robot_base = franka.get_world_pose()
-    # robot_base_pos = robot_base[0] / 100.0   # cm to m
-    robot_base_pos = robot_base[0]
-    robot_base_rot = robot_base[1][[1,2,3,0]]   # wxyz to xyzw
-    misc['robot_base'] = (robot_base_pos, robot_base_rot)
+    robot_base_pos = robot_base[0].copy()
+    robot_forward_direction = R.from_quat(robot_base[1][[1,2,3,0]]).as_matrix()[:, 0]
+    robot_forward_direction[1] = 0   # height
+    robot_forward_direction = robot_forward_direction / np.linalg.norm(robot_forward_direction) * 50   # cm
+    bound_center = robot_base_pos + robot_forward_direction
 
     position_rotation_world = get_ee(cspace_controller)
     # gripper_pose_trans = position_rotation_world[0] / 100.0   # cm to m
@@ -293,7 +298,7 @@ def get_obs(franka, cspace_controller, gt, type='rgb'):
         point_cloud = create_pcd_hardcode(camera, depth, cm_to_m=True)
         obs[CAMERAS[camera_idx]+'_rgb'] = rgb
         obs[CAMERAS[camera_idx]+'_depth'] = depth
-        obs[CAMERAS[camera_idx]+'_point_cloud'] = point_cloud - robot_base_pos / 100
+        obs[CAMERAS[camera_idx]+'_point_cloud'] = point_cloud - bound_center / 100
     
     gripper_open = gripper_joint_positions[0] > 3.9 and gripper_joint_positions[1] > 3.9
 
@@ -316,7 +321,7 @@ def get_obs(franka, cspace_controller, gt, type='rgb'):
         gripper_open=gripper_open,
         gripper_pose=gripper_pose,
         gripper_joint_positions=gripper_joint_positions,
-        misc=misc,
+        bound_center=bound_center,
         joint_positions=franka.get_joint_positions(),
         joint_velocities=franka.get_joint_velocities(),
     )

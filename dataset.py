@@ -31,7 +31,7 @@ class ArnoldDataset(Dataset):
         self.task = task
         self.pixel_size = 5.625e-3
         self.obs_type = obs_type
-        self.task_offset = TASK_OFFSETS[task] / 100
+        self.task_offset = TASK_OFFSETS[task] / 100 if isinstance(TASK_OFFSETS, dict) else TASK_OFFSETS / 100
         self.sample_weights = [0.2, 0.8]
         self.obj_ids = []
         self.episode_dict = {}
@@ -73,20 +73,24 @@ class ArnoldDataset(Dataset):
                 # pick phase
                 step = gt_frames[0].copy()
                 robot_base_pos = step['robot_base'][0] / 100
+                robot_forward_direction = R.from_quat(step['robot_base'][1][[1,2,3,0]]).as_matrix()[:, 0]
+                robot_forward_direction[1] = 0   # height
+                robot_forward_direction = robot_forward_direction / np.linalg.norm(robot_forward_direction) * 0.5   # m
+                bound_center = robot_base_pos + robot_forward_direction
 
                 cmap, hmap, obs_dict = self.get_step_obs(step, self.task_offset[[0, 2, 1]], self.pixel_size, type=self.obs_type)
                 hmap = np.tile(hmap[..., None], (1,1,3))
                 img = np.concatenate([cmap, hmap], axis=-1)
 
                 obj_pos = gt_frames[2]['position_rotation_world'][0] / 100
-                obj_pos = obj_pos - robot_base_pos
+                obj_pos = obj_pos - bound_center
 
                 act_pos = gt_frames[2]['position_rotation_world'][0].copy()
                 act_rot = gt_frames[2]['position_rotation_world'][1].copy()
                 act_pos /= 100
                 act_rot = act_rot[[1,2,3,0]]   # wxyz to xyzw
                 target_points = self.get_act_label_from_abs(pos_abs=act_pos, rot_abs=act_rot)
-                target_points[:3] = target_points[:3] - robot_base_pos
+                target_points[:3] = target_points[:3] - bound_center
 
                 gripper_open = 1
                 gripper_joint_positions = step['gripper_joint_positions'] / 100
@@ -111,12 +115,16 @@ class ArnoldDataset(Dataset):
                 # place phase
                 step = gt_frames[2].copy()
                 robot_base_pos = step['robot_base'][0] / 100
+                robot_forward_direction = R.from_quat(step['robot_base'][1][[1,2,3,0]]).as_matrix()[:, 0]
+                robot_forward_direction[1] = 0   # height
+                robot_forward_direction = robot_forward_direction / np.linalg.norm(robot_forward_direction) * 0.5   # m
+                bound_center = robot_base_pos + robot_forward_direction
 
                 cmap, hmap, obs_dict = self.get_step_obs(step, self.task_offset[[0, 2, 1]], self.pixel_size, type=self.obs_type)
                 hmap = np.tile(hmap[..., None], (1,1,3))
                 img = np.concatenate([cmap, hmap], axis=-1)
 
-                obj_pos = step['position_rotation_world'][0] / 100 - robot_base_pos
+                obj_pos = step['position_rotation_world'][0] / 100 - bound_center
 
                 act_pos = gt_frames[3]['position_rotation_world'][0].copy()
                 if self.task in ['pour_water', 'transfer_water']:
@@ -129,7 +137,7 @@ class ArnoldDataset(Dataset):
                 act_pos /= 100
                 act_rot = act_rot[[1,2,3,0]]   # wxyz to xyzw
                 target_points = self.get_act_label_from_abs(pos_abs=act_pos, rot_abs=act_rot)
-                target_points[:3] = target_points[:3] - robot_base_pos
+                target_points[:3] = target_points[:3] - bound_center
 
                 gripper_open = 0
                 gripper_joint_positions = step['gripper_joint_positions'] / 100
@@ -211,7 +219,11 @@ class ArnoldDataset(Dataset):
 
             point_cloud = create_pcd_hardcode(camera, depth, cm_to_m=True)
             # here point_cloud is y-up
-            point_cloud = point_cloud - step['robot_base'][0] / 100
+            robot_forward_direction = R.from_quat(step['robot_base'][1][[1,2,3,0]]).as_matrix()[:, 0]
+            robot_forward_direction[1] = 0
+            robot_forward_direction = robot_forward_direction / np.linalg.norm(robot_forward_direction) * 0.5   # m
+            bound_center = step['robot_base'][0] / 100 + robot_forward_direction
+            point_cloud = point_cloud - bound_center
 
             pcds.append(point_cloud[:, :, [0, 2, 1]])   # pcds is for cliport6d, which requires z-up
 
