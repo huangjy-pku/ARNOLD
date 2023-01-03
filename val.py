@@ -1,12 +1,13 @@
 """
-For example, run:
-    python eval.py --data_dir /mnt/huangjiangyong/VRKitchen/pickup_object --task pickup_object --agent peract --lang_encoder clip --obs_type rgb \
-                   --use_gt 0 0 --visualize 0 --checkpoint_path /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt_peract/peract_pickup_object_rgb_clip_best.pth.pth
+Script for model selection. For example, run:
+    python val.py --data_dir /mnt/huangjiangyong/VRKitchen/pickup_object --task pickup_object --agent peract --lang_encoder clip --obs_type rgb \
+                  --use_gt 0 0 --visualize 0 --checkpoint_dir /mnt/huangjiangyong/VRKitchen/pickup_object/ckpt_peract
 """
 
 import os
 import sys
 import torch
+import shutil
 import argparse
 import numpy as np
 from pathlib import Path
@@ -48,10 +49,6 @@ def load_scene(data, scene_loader, simulation_app, scene_properties, use_gpu_phy
         scene_parameters[0].usd_path = os.path.abspath(scene_parameters[0].usd_path).split(os.path.sep)
         path_idx = scene_parameters[0].usd_path.index('VRKitchen2.0')
         scene_parameters[0].usd_path = os.path.join('/home/huangjiangyong/repo', os.path.sep.join(scene_parameters[0].usd_path[path_idx:]))
-        
-        # scene_parameters[0].traj_dir = os.path.abspath(scene_parameters[0].traj_dir).split(os.path.sep)
-        # path_idx = scene_parameters[0].traj_dir.index('VRKitchen2.0')
-        # scene_parameters[0].traj_dir = os.path.join('/home/huangjiangyong/repo', os.path.sep.join(scene_parameters[0].traj_dir[path_idx:]))
 
         robot_parameters = info['robot_parameters']
         robot_parameters[0].usd_path = os.path.abspath(robot_parameters[0].usd_path).split(os.path.sep)
@@ -83,7 +80,7 @@ def load_scene(data, scene_loader, simulation_app, scene_properties, use_gpu_phy
     return scene_loader
 
 
-def load_agent(args, device):
+def load_agent(args, ckpt_name, device):
     if args.agent == 'cliport6d':
         model_cfg = {
             'train': {
@@ -95,13 +92,13 @@ def load_agent(args, device):
             }
         }
         agent = TwoStreamClipLingUNetLatTransporterAgent(name='cliport_6dof', device=device, cfg=model_cfg, z_roll_pitch=True)
-        checkpoint = torch.load(args.checkpoint_path, map_location=device)
+        checkpoint = torch.load(os.path.join(args.checkpoint_dir, ckpt_name), map_location=device)
         agent.load_state_dict(checkpoint['state_dict'])
         agent.eval()
         agent.to(device)
     elif args.agent == 'peract':
         agent = create_agent(args, train=False, device=device)
-        agent.load_model(args.checkpoint_path)
+        agent.load_model(os.path.join(args.checkpoint_dir, ckpt_name))
     else:
         raise ValueError(f'{args.agent} agent not supported')
     return agent
@@ -301,17 +298,20 @@ def main(args):
     light_usd_path = '/home/huangjiangyong/repo/VRKitchen2.0/sample/light/skylight.usd'
     scene_properties = StageProperties(light_usd_path, "y", 0.01, gravity_direction=[0,-1,0], gravity_magnitude=981)
 
-    agent = load_agent(args, device=device)
     if args.agent == 'peract':
         lang_encoder = create_lang_encoder(encoder_key=args.lang_encoder, device=device)
         lang_embed_cache = InstructionEmbedding(lang_encoder)
     else:
         lang_embed_cache = None
 
-    eval_log = []
-    for eval_split in EVAL_SPLITS:
-        eval_log.append(f'Evaluating {eval_split}\n')
-        data = load_data(data_path=os.path.join(args.data_dir, eval_split))
+    val_log = []
+    models_dict = {}
+    for ckpt_name in os.listdir(args.checkpoint_dir):
+        if not ckpt_name.endswith('pth'):
+            continue
+        val_log.append(f'Evaluating {ckpt_name}\n')
+        data = load_data(data_path=os.path.join(args.data_dir, 'val'))
+        agent = load_agent(args, ckpt_name, device=device)
 
         scene_loader: SceneLoader = None
         correct = 0
@@ -456,7 +456,7 @@ def main(args):
                     target_end_effector_position=current_target[0], target_end_effector_orientation=current_target[1]
                 )
                 
-                if position_reached(c_controller, current_target[0], franka, thres=0.1) and rotation_reached(c_controller, current_target[1]):
+                if position_reached(c_controller, current_target[0], franka, thres = 1.0) and rotation_reached(c_controller, current_target[1]):
                     if current_target[2] < 0.5:
                         target_joint_positions_gripper = gripper_controller.forward(action="close")
                         for _ in range(10):
@@ -488,10 +488,16 @@ def main(args):
             total += 1
             log_str = f'correct: {correct} | total: {total} | remaining: {len(data)}'
             print(log_str)
-            eval_log.append(f'{log_str}\n')
+            val_log.append(f'{log_str}\n')
 
-        with open(f'eval_{args.task}.log', 'w') as f:
-            f.writelines(eval_log)
+        models_dict.update({ckpt_name: correct/total})
+
+    selected_idx = np.argmax(list(models_dict.values()))
+    selected_name = list(models_dict.keys())[selected_idx]
+    shutil.move(os.path.join(args.checkpoint_dir, selected_name), os.path.join(args.checkpoint_dir, 'best.pth'))
+    val_log.append(f'{models_dict}\nSelect {selected_name} as best')
+    with open(f'eval_{args.task}.log', 'w') as f:
+        f.writelines(val_log)
     
     simulation_app.close()
 
@@ -507,7 +513,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_gt', type=int, nargs='+')
     parser.add_argument('--visualize', type=int)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--checkpoint_path', type=str, metavar='PATH')
+    parser.add_argument('--checkpoint_dir', type=str, metavar='PATH')
     args = parser.parse_args()
 
     main(args)

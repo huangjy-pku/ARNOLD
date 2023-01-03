@@ -1,6 +1,7 @@
 import math
 import numpy as np
 from .compute_points import compute_points
+from scipy.spatial.transform import Rotation as R
 
 
 # -------------------------- constants for cliport6d --------------------------
