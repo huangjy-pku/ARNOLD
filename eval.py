@@ -456,17 +456,18 @@ def main(args):
                     target_end_effector_position=current_target[0], target_end_effector_orientation=current_target[1]
                 )
                 
-                if position_reached(c_controller, current_target[0], franka, thres=0.1) and rotation_reached(c_controller, current_target[1]):
+                if ( position_reached(c_controller, current_target[0], franka, thres=0.1) or ('water' in args.task and stage == 4) ) \
+                   and rotation_reached(c_controller, current_target[1]):
                     if current_target[2] < 0.5:
                         target_joint_positions_gripper = gripper_controller.forward(action="close")
-                        for _ in range(10):
+                        for _ in range(20):
                             articulation_controller = franka.get_articulation_controller()
                             articulation_controller.apply_action(target_joint_positions_gripper)
                             simulation_context.step(render=render)
                         
                     else:
                         target_joint_positions_gripper = gripper_controller.forward(action="open")
-                        for _ in range(10):
+                        for _ in range(20):
                             articulation_controller = franka.get_articulation_controller()
                             articulation_controller.apply_action(target_joint_positions_gripper)
                             simulation_context.step(render=render)
